@@ -23,6 +23,12 @@ type Member = {
     field_9: string;  // phone
     field_17: string; // email
     field_33: string; // Notes (Family Data)
+    
+    // MAILING TOGGLES
+    field_28: string; // Laxmi Puja Paan
+    field_29: string; // Annakut Prasad
+    field_30: string; // Annual Calendar
+    field_31: string; // Brahmanirzar (C)
   };
 };
 
@@ -103,15 +109,13 @@ export default function DashboardInner() {
     return () => Providers.removeProviderUpdatedListener(updateState);
   }, []);
 
-  // --- LOCAL UPDATE HELPERS (The "Magic" Speed Fix) ---
+  // --- LOCAL UPDATE HELPERS ---
   
-  // Update a single member in the local list without reloading
   const handleLocalUpdate = (updatedMember: Member) => {
     setMembers(prev => prev.map(m => m.id === updatedMember.id ? updatedMember : m));
     setSelectedMember(updatedMember);
   };
 
-  // Add a new member to the local list
   const handleLocalAdd = (newMember: Member) => {
     setMembers(prev => [newMember, ...prev].sort((a, b) => (a.fields.field_19 || "").localeCompare(b.fields.field_19 || "")));
     setSelectedMember(newMember);
@@ -285,7 +289,6 @@ function AddMemberModal({ onClose, onSuccess }: { onClose: () => void, onSuccess
 
         const res = await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items`).post(payload);
         
-        // Construct a full Member object from the response + our form data to update UI instantly
         if (res && res.id) {
            const newMemberLocal: Member = {
                id: res.id,
@@ -295,12 +298,12 @@ function AddMemberModal({ onClose, onSuccess }: { onClose: () => void, onSuccess
                    field_19: formData.labelName || `${formData.firstName} ${formData.lastName}`,
                    field_9: formData.phone,
                    field_17: formData.email,
-                   field_20: "", field_21: "", field_22: "", field_23: "", field_33: ""
+                   field_20: "", field_21: "", field_22: "", field_23: "", field_33: "",
+                   field_28: "", field_29: "", field_30: "", field_31: ""
                }
            };
            onSuccess(newMemberLocal);
         } else {
-            // Fallback
             onClose();
         }
       } catch (err) {
@@ -351,7 +354,7 @@ function AddMemberModal({ onClose, onSuccess }: { onClose: () => void, onSuccess
   );
 }
 
-// --- DETAIL COMPONENT WITH NEW FAMILY GUI ---
+// --- DETAIL COMPONENT ---
 
 function MemberDetailView({ member, onUpdateSuccess }: { member: Member, onUpdateSuccess: (m: Member) => void }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -368,7 +371,12 @@ function MemberDetailView({ member, onUpdateSuccess }: { member: Member, onUpdat
     city: "",
     state: "",
     zip: "",
-    familyNotes: ""
+    familyNotes: "",
+    // Mailing
+    laxmi: "",
+    annakut: "",
+    calendar: "",
+    bmn: ""
   });
 
   // Load data on select
@@ -383,12 +391,17 @@ function MemberDetailView({ member, onUpdateSuccess }: { member: Member, onUpdat
       city: member.fields.field_21 || "",
       state: member.fields.field_22 || "",
       zip: member.fields.field_23 || "",
-      familyNotes: member.fields.field_33 || ""
+      familyNotes: member.fields.field_33 || "",
+      // Mailing Defaults
+      laxmi: member.fields.field_28 || "Do Not Mail",
+      annakut: member.fields.field_29 || "Do Not Mail",
+      calendar: member.fields.field_30 || "Do Not Mail",
+      bmn: member.fields.field_31 || "Do Not Mail",
     });
     setIsEditing(false);
   }, [member]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -410,13 +423,16 @@ function MemberDetailView({ member, onUpdateSuccess }: { member: Member, onUpdat
             field_21: dataToSave.city,
             field_22: dataToSave.state,
             field_23: dataToSave.zip,
-            field_33: dataToSave.familyNotes
+            field_33: dataToSave.familyNotes,
+            // Mailing
+            field_28: dataToSave.laxmi,
+            field_29: dataToSave.annakut,
+            field_30: dataToSave.calendar,
+            field_31: dataToSave.bmn
         };
 
-        // 1. Send update to SharePoint
         await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items/${member.id}/fields`).patch(payload);
         
-        // 2. Update LOCAL state immediately (Instant UI update)
         const updatedMember: Member = {
             ...member,
             fields: { ...member.fields, ...payload }
@@ -432,8 +448,16 @@ function MemberDetailView({ member, onUpdateSuccess }: { member: Member, onUpdat
     setIsSaving(false);
   };
 
+  // Helper for Badge Color
+  const getBadgeColor = (val: string) => {
+      const v = (val || "").toLowerCase();
+      if(v.includes('do not')) return 'bg-red-100 text-red-800 border-red-200';
+      if(v.includes('hand') || v.includes('dig')) return 'bg-blue-100 text-blue-800 border-blue-200';
+      return 'bg-green-100 text-green-800 border-green-200'; // Mail, BMN
+  };
+
   return (
-    <div className="animate-fade-in-up relative">
+    <div className="animate-fade-in-up relative pb-20">
       {/* EDIT TOGGLE */}
       <div className="absolute top-0 right-0">
         {!isEditing ? (
@@ -513,12 +537,76 @@ function MemberDetailView({ member, onUpdateSuccess }: { member: Member, onUpdat
         </div>
       </div>
 
+      {/* MAILING PREFERENCES SECTION */}
+      <div className="mb-8">
+        <h3 className="text-xl font-bold text-[#8B2323] mb-4 flex items-center gap-2">
+            Mailing Preferences
+            <span className="h-px bg-gray-200 flex-1 ml-4"></span>
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            
+            {/* Laxmi Puja Paan */}
+            <div className="p-4 bg-white border border-gray-200 rounded-lg">
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Laxmi Puja Paan</label>
+                {isEditing ? (
+                    <select name="laxmi" value={formData.laxmi} onChange={handleChange} className="w-full p-2 border rounded bg-gray-50">
+                        <option value="Mail">Mail</option>
+                        <option value="Do Not Mail">Do Not Mail</option>
+                    </select>
+                ) : (
+                    <span className={`px-2 py-1 rounded text-xs font-bold border ${getBadgeColor(formData.laxmi)}`}>{formData.laxmi || "Do Not Mail"}</span>
+                )}
+            </div>
+
+            {/* Annakut Prasad */}
+            <div className="p-4 bg-white border border-gray-200 rounded-lg">
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Annakut Prasad</label>
+                {isEditing ? (
+                    <select name="annakut" value={formData.annakut} onChange={handleChange} className="w-full p-2 border rounded bg-gray-50">
+                        <option value="Mail">Mail</option>
+                        <option value="Do Not Mail">Do Not Mail</option>
+                        <option value="2025 Hand">2025 Hand</option>
+                    </select>
+                ) : (
+                    <span className={`px-2 py-1 rounded text-xs font-bold border ${getBadgeColor(formData.annakut)}`}>{formData.annakut || "Do Not Mail"}</span>
+                )}
+            </div>
+
+            {/* Annual Calendar */}
+            <div className="p-4 bg-white border border-gray-200 rounded-lg">
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Annual Calendar</label>
+                {isEditing ? (
+                    <select name="calendar" value={formData.calendar} onChange={handleChange} className="w-full p-2 border rounded bg-gray-50">
+                        <option value="Mail">Mail</option>
+                        <option value="Do Not Mail">Do Not Mail</option>
+                    </select>
+                ) : (
+                    <span className={`px-2 py-1 rounded text-xs font-bold border ${getBadgeColor(formData.calendar)}`}>{formData.calendar || "Do Not Mail"}</span>
+                )}
+            </div>
+
+            {/* Brahmanirzar */}
+            <div className="p-4 bg-white border border-gray-200 rounded-lg">
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Brahmanirzar (C)</label>
+                {isEditing ? (
+                    <select name="bmn" value={formData.bmn} onChange={handleChange} className="w-full p-2 border rounded bg-gray-50">
+                        <option value="BMN">BMN</option>
+                        <option value="DIG">DIG</option>
+                        <option value="Do Not Mail">Do Not Mail</option>
+                    </select>
+                ) : (
+                    <span className={`px-2 py-1 rounded text-xs font-bold border ${getBadgeColor(formData.bmn)}`}>{formData.bmn || "Do Not Mail"}</span>
+                )}
+            </div>
+        </div>
+      </div>
+
       {/* NEW FAMILY GUI COMPONENT */}
       <FamilyEditor 
         rawFamilyString={formData.familyNotes} 
         isEditing={isEditing} 
         onUpdate={(newString) => {
-             // Just update local state for now; the main SAVE button commits it to server
              setFormData(prev => ({ ...prev, familyNotes: newString }));
         }} 
       />
@@ -528,25 +616,20 @@ function MemberDetailView({ member, onUpdateSuccess }: { member: Member, onUpdat
 
 // --- VISUAL FAMILY EDITOR COMPONENT ---
 function FamilyEditor({ rawFamilyString, isEditing, onUpdate }: { rawFamilyString: string, isEditing: boolean, onUpdate: (s: string) => void }) {
-  // Parse string to objects
   const parse = (str: string) => {
       if(!str) return [];
       const regex = /([^\s,()][^,()]*?)\s*\(([^)]+)\)/g;
       const matches = [...str.matchAll(regex)];
       if (matches.length === 0 && str.length > 3) {
-          // Fallback
           return str.split(',').map(s => ({ name: s.trim(), tag: '?' }));
       }
       return matches.map(m => ({ name: m[1].trim(), tag: m[2].toUpperCase().trim() }));
   };
 
   const familyList = parse(rawFamilyString);
-  
-  // Local state for the "Add New" inputs
   const [newName, setNewName] = useState("");
   const [newRel, setNewRel] = useState("W");
 
-  // Helper to convert objects back to string: "Name(Tag), Name(Tag)"
   const serialize = (list: {name: string, tag: string}[]) => {
       return list.map(item => `${item.name}(${item.tag})`).join(',');
   };
@@ -564,15 +647,12 @@ function FamilyEditor({ rawFamilyString, isEditing, onUpdate }: { rawFamilyStrin
       onUpdate(serialize(newList));
   };
 
-  // Tag to Full Name Map
   const relMap: Record<string, string> = { 'W': 'Wife', 'H': 'Husband', 'S': 'Son', 'D': 'Daughter', 'M': 'Mother', 'F': 'Father' };
 
   return (
     <div>
         <h3 className="text-xl font-bold text-[#8B2323] mb-4 flex items-center gap-2">Family Unit</h3>
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-            
-            {/* LIST VIEW */}
             <div className="flex flex-wrap gap-2 mb-4">
                 {familyList.length > 0 ? familyList.map((fm, idx) => (
                     <div key={idx} className="inline-flex items-center bg-orange-50 border border-orange-100 rounded-full pl-1 pr-3 py-1">
@@ -594,7 +674,6 @@ function FamilyEditor({ rawFamilyString, isEditing, onUpdate }: { rawFamilyStrin
                 )}
             </div>
 
-            {/* ADD INTERFACE (Only visible in Edit Mode) */}
             {isEditing && (
                 <div className="mt-4 pt-4 border-t border-dashed border-gray-200">
                     <p className="text-xs font-bold text-gray-400 mb-2 uppercase">Add Family Member</p>
