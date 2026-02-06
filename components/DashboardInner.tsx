@@ -33,7 +33,7 @@ export default function DashboardInner() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // NEW: Progress State
+  // Progress State
   const [loadedCount, setLoadedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
@@ -49,10 +49,17 @@ export default function DashboardInner() {
       try {
         const client = provider.graph.client;
         
-        // 1. Get the TOTAL number of items first (for the progress bar)
-        const listInfo = await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}`).select('list').get();
-        // The API returns a 'list' object with 'itemCount' inside
-        const estimatedTotal = listInfo.list?.itemCount || 100;
+        // 1. Get the TOTAL number of items first
+        // We default to 5000 if the API returns 0 to prevent the "Instant 100%" bug
+        let estimatedTotal = 5000; 
+        try {
+            const listInfo = await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}`).select('list').get();
+            if(listInfo.list?.itemCount && listInfo.list.itemCount > 0) {
+                estimatedTotal = listInfo.list.itemCount;
+            }
+        } catch (err) {
+            console.warn("Could not fetch list count, defaulting to 5000");
+        }
         setTotalCount(estimatedTotal);
 
         // 2. Start the Loop
@@ -67,6 +74,13 @@ export default function DashboardInner() {
             
             // Update Progress
             currentProgress += response.value.length;
+            
+            // Fix: If we loaded more than we thought existed, bump the total so the bar doesn't break
+            if(currentProgress > estimatedTotal) {
+                estimatedTotal = currentProgress + 1000;
+                setTotalCount(estimatedTotal);
+            }
+            
             setLoadedCount(currentProgress);
           }
           nextLink = response['@odata.nextLink'];
@@ -98,7 +112,7 @@ export default function DashboardInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- ROBUST SEARCH LOGIC ---
+  // --- SEARCH LOGIC ---
   const filteredMembers = useMemo(() => {
     if (!searchQuery) return members;
     const lowerQuery = searchQuery.toLowerCase();
@@ -118,7 +132,6 @@ export default function DashboardInner() {
     });
   }, [members, searchQuery]);
 
-  // Calculate Percentage for Display
   const progressPercentage = totalCount > 0 ? Math.min(100, Math.round((loadedCount / totalCount) * 100)) : 0;
 
   return (
@@ -162,7 +175,7 @@ export default function DashboardInner() {
               
               <div className="overflow-y-auto flex-1 p-2 scrollbar-thin scrollbar-thumb-orange-200">
                 
-                {/* --- PROGRESS BAR --- */}
+                {/* PROGRESS BAR */}
                 {loading && (
                   <div className="p-6 text-center">
                     <p className="text-[#8B2323] font-bold mb-2 animate-pulse">Fetching Directory...</p>
@@ -365,11 +378,20 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
         <div className="w-full">
           {isEditing ? (
             <div className="space-y-2">
-               <label className="text-xs font-bold text-gray-400">LABEL NAME (e.g. Mihir & Rajvi Patel)</label>
+               {/* 1. UPDATED HEADER */}
+               <label className="text-xs font-bold text-gray-400">DISPLAY NAME</label>
                <input name="labelName" value={formData.labelName} onChange={handleChange} className="border p-2 rounded w-full text-xl font-bold text-[#8B2323]" />
-               <div className="flex gap-2">
-                 <input name="firstName" value={formData.firstName} onChange={handleChange} className="border p-2 rounded w-1/2 text-sm" placeholder="First Name" />
-                 <input name="lastName" value={formData.lastName} onChange={handleChange} className="border p-2 rounded w-1/2 text-sm" placeholder="Last Name" />
+               
+               {/* 2. UPDATED INPUTS WITH LABELS */}
+               <div className="flex gap-2 pt-2">
+                 <div className="w-1/2">
+                   <input name="firstName" value={formData.firstName} onChange={handleChange} className="border p-2 rounded w-full text-sm" placeholder="First Name" />
+                   <p className="text-[10px] text-gray-400 uppercase mt-1 font-bold">First Name</p>
+                 </div>
+                 <div className="w-1/2">
+                   <input name="lastName" value={formData.lastName} onChange={handleChange} className="border p-2 rounded w-full text-sm" placeholder="Last Name" />
+                   <p className="text-[10px] text-gray-400 uppercase mt-1 font-bold">Last Name</p>
+                 </div>
                </div>
             </div>
           ) : (
