@@ -15,7 +15,7 @@ type Member = {
   fields: {
     field_3: string;  // firstName
     field_5: string;  // lastName
-    field_19: string; // Name on Address Label (Main Display)
+    field_19: string; // Name on Address Label
     field_20: string; // street
     field_21: string; // city
     field_22: string; // state
@@ -32,11 +32,13 @@ export default function DashboardInner() {
   const [loading, setLoading] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAddModal, setShowAddModal] = useState(false);
 
   // Progress State
   const [loadedCount, setLoadedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
+  // --- INITIAL FETCH ONLY ---
   const fetchAllMembers = async () => {
     const provider = Providers.globalProvider;
     
@@ -49,8 +51,7 @@ export default function DashboardInner() {
       try {
         const client = provider.graph.client;
         
-        // 1. Get the TOTAL number of items first
-        // We default to 5000 if the API returns 0 to prevent the "Instant 100%" bug
+        // 1. Get Estimated Total
         let estimatedTotal = 5000; 
         try {
             const listInfo = await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}`).select('list').get();
@@ -58,11 +59,11 @@ export default function DashboardInner() {
                 estimatedTotal = listInfo.list.itemCount;
             }
         } catch (err) {
-            console.warn("Could not fetch list count, defaulting to 5000");
+            console.warn("Could not fetch list count", err);
         }
         setTotalCount(estimatedTotal);
 
-        // 2. Start the Loop
+        // 2. Fetch Loop
         let allItems: Member[] = [];
         let nextLink = `/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items?expand=fields&$top=999`;
         let currentProgress = 0;
@@ -71,16 +72,12 @@ export default function DashboardInner() {
           const response = await client.api(nextLink).get();
           if (response.value) {
             allItems = [...allItems, ...response.value];
-            
-            // Update Progress
             currentProgress += response.value.length;
             
-            // Fix: If we loaded more than we thought existed, bump the total so the bar doesn't break
             if(currentProgress > estimatedTotal) {
                 estimatedTotal = currentProgress + 1000;
                 setTotalCount(estimatedTotal);
             }
-            
             setLoadedCount(currentProgress);
           }
           nextLink = response['@odata.nextLink'];
@@ -88,11 +85,6 @@ export default function DashboardInner() {
         
         allItems.sort((a, b) => (a.fields.field_19 || "").localeCompare(b.fields.field_19 || ""));
         setMembers(allItems);
-        
-        if (selectedMember) {
-          const updatedSelected = allItems.find(m => m.id === selectedMember.id);
-          if (updatedSelected) setSelectedMember(updatedSelected);
-        }
 
       } catch (e) {
         console.error("Failed to fetch list data:", e);
@@ -109,8 +101,21 @@ export default function DashboardInner() {
     const updateState = () => fetchAllMembers();
     Providers.onProviderUpdated(updateState);
     return () => Providers.removeProviderUpdatedListener(updateState);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // --- LOCAL UPDATE HELPERS (The "Magic" Speed Fix) ---
+  
+  // Update a single member in the local list without reloading
+  const handleLocalUpdate = (updatedMember: Member) => {
+    setMembers(prev => prev.map(m => m.id === updatedMember.id ? updatedMember : m));
+    setSelectedMember(updatedMember);
+  };
+
+  // Add a new member to the local list
+  const handleLocalAdd = (newMember: Member) => {
+    setMembers(prev => [newMember, ...prev].sort((a, b) => (a.fields.field_19 || "").localeCompare(b.fields.field_19 || "")));
+    setSelectedMember(newMember);
+  };
 
   // --- SEARCH LOGIC ---
   const filteredMembers = useMemo(() => {
@@ -127,7 +132,6 @@ export default function DashboardInner() {
         ${m.fields.field_17 || ""} 
         ${m.fields.field_33 || ""}
       `.toLowerCase();
-
       return queryParts.every(part => fullSearchText.includes(part));
     });
   }, [members, searchQuery]);
@@ -159,8 +163,17 @@ export default function DashboardInner() {
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 h-[80vh]">
             
             {/* LEFT COLUMN: Search & List */}
-            <div className="md:col-span-4 bg-white shadow-lg rounded-xl overflow-hidden flex flex-col h-full border border-gray-100">
-              <div className="p-4 bg-[#FFF8F0] border-b border-orange-100">
+            <div className="md:col-span-4 bg-white shadow-lg rounded-xl overflow-hidden flex flex-col h-full border border-gray-100 relative">
+              
+              <div className="p-4 bg-[#FFF8F0] border-b border-orange-100 space-y-3">
+                <button 
+                  onClick={() => setShowAddModal(true)}
+                  className="w-full py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded shadow flex items-center justify-center gap-2 transition"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  New Member
+                </button>
+
                 <input 
                   type="text" 
                   placeholder="Search (Name, Label, Phone)..." 
@@ -168,14 +181,13 @@ export default function DashboardInner() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <div className="mt-2 text-xs font-semibold text-gray-400 uppercase tracking-wider text-right">
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider text-right">
                   {filteredMembers.length} Matches
                 </div>
               </div>
               
               <div className="overflow-y-auto flex-1 p-2 scrollbar-thin scrollbar-thumb-orange-200">
-                
-                {/* PROGRESS BAR */}
+                {/* Progress Bar */}
                 {loading && (
                   <div className="p-6 text-center">
                     <p className="text-[#8B2323] font-bold mb-2 animate-pulse">Fetching Directory...</p>
@@ -186,7 +198,7 @@ export default function DashboardInner() {
                       ></div>
                     </div>
                     <p className="text-xs text-gray-500 font-mono">
-                      Loaded {loadedCount} of ~{totalCount} entries ({progressPercentage}%)
+                      Loaded {loadedCount} of ~{totalCount} entries
                     </p>
                   </div>
                 )}
@@ -221,7 +233,7 @@ export default function DashboardInner() {
               {selectedMember ? (
                 <MemberDetailView 
                   member={selectedMember} 
-                  onRefreshRequest={fetchAllMembers} 
+                  onUpdateSuccess={handleLocalUpdate} 
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-gray-300">
@@ -233,17 +245,119 @@ export default function DashboardInner() {
           </div>
         )}
       </div>
+      
+      {/* ADD MEMBER MODAL */}
+      {showAddModal && (
+        <AddMemberModal 
+          onClose={() => setShowAddModal(false)} 
+          onSuccess={(newMember) => {
+            setShowAddModal(false);
+            handleLocalAdd(newMember);
+          }} 
+        />
+      )}
     </div>
   );
 }
 
-// --- DETAIL COMPONENT ---
+// --- ADD MEMBER MODAL ---
+function AddMemberModal({ onClose, onSuccess }: { onClose: () => void, onSuccess: (m: Member) => void }) {
+  const [formData, setFormData] = useState({ firstName: "", lastName: "", labelName: "", phone: "", email: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefreshRequest: () => void }) {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    const provider = Providers.globalProvider;
+    
+    if (provider) {
+      try {
+        const client = provider.graph.client;
+        const payload = {
+          fields: {
+            field_3: formData.firstName,
+            field_5: formData.lastName,
+            field_19: formData.labelName || `${formData.firstName} ${formData.lastName}`,
+            field_9: formData.phone,
+            field_17: formData.email
+          }
+        };
+
+        const res = await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items`).post(payload);
+        
+        // Construct a full Member object from the response + our form data to update UI instantly
+        if (res && res.id) {
+           const newMemberLocal: Member = {
+               id: res.id,
+               fields: {
+                   field_3: formData.firstName,
+                   field_5: formData.lastName,
+                   field_19: formData.labelName || `${formData.firstName} ${formData.lastName}`,
+                   field_9: formData.phone,
+                   field_17: formData.email,
+                   field_20: "", field_21: "", field_22: "", field_23: "", field_33: ""
+               }
+           };
+           onSuccess(newMemberLocal);
+        } else {
+            // Fallback
+            onClose();
+        }
+      } catch (err) {
+        console.error("Error creating member:", err);
+        alert("Failed to create member.");
+        setIsSubmitting(false);
+      }
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full animate-fade-in-up">
+        <h2 className="text-2xl font-bold text-[#8B2323] mb-4">Add New Member</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+             <div>
+               <label className="text-xs font-bold text-gray-500 uppercase">First Name *</label>
+               <input required className="w-full border p-2 rounded" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} />
+             </div>
+             <div>
+               <label className="text-xs font-bold text-gray-500 uppercase">Last Name</label>
+               <input className="w-full border p-2 rounded" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} />
+             </div>
+          </div>
+          <div>
+             <label className="text-xs font-bold text-gray-500 uppercase">Display Name</label>
+             <input className="w-full border p-2 rounded" placeholder="e.g. Mihir & Rajvi Patel" value={formData.labelName} onChange={e => setFormData({...formData, labelName: e.target.value})} />
+          </div>
+          <div>
+             <label className="text-xs font-bold text-gray-500 uppercase">Phone</label>
+             <input className="w-full border p-2 rounded" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+          </div>
+          <div>
+             <label className="text-xs font-bold text-gray-500 uppercase">Email</label>
+             <input className="w-full border p-2 rounded" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+          </div>
+          
+          <div className="flex gap-3 pt-4">
+             <button type="button" onClick={onClose} className="flex-1 py-2 bg-gray-200 rounded text-gray-700 font-semibold hover:bg-gray-300">Cancel</button>
+             <button type="submit" disabled={isSubmitting} className="flex-1 py-2 bg-[#F37021] text-white rounded font-bold hover:bg-[#d95d15] disabled:opacity-50">
+               {isSubmitting ? "Creating..." : "Create Member"}
+             </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- DETAIL COMPONENT WITH NEW FAMILY GUI ---
+
+function MemberDetailView({ member, onUpdateSuccess }: { member: Member, onUpdateSuccess: (m: Member) => void }) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [newFamilyMember, setNewFamilyMember] = useState("");
   
+  // Local Form Data
   const [formData, setFormData] = useState({
     labelName: "",
     firstName: "",
@@ -257,6 +371,7 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
     familyNotes: ""
   });
 
+  // Load data on select
   useEffect(() => {
     setFormData({
       labelName: member.fields.field_19 || "",
@@ -298,11 +413,17 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
             field_33: dataToSave.familyNotes
         };
 
-        await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items/${member.id}/fields`)
-            .patch(payload);
+        // 1. Send update to SharePoint
+        await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items/${member.id}/fields`).patch(payload);
+        
+        // 2. Update LOCAL state immediately (Instant UI update)
+        const updatedMember: Member = {
+            ...member,
+            fields: { ...member.fields, ...payload }
+        };
+        onUpdateSuccess(updatedMember);
         
         setIsEditing(false);
-        onRefreshRequest();
       } catch (e) {
         alert("Error saving data. Check console.");
         console.error(e);
@@ -311,48 +432,8 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
     setIsSaving(false);
   };
 
-  const handleAddFamily = async () => {
-    if(!newFamilyMember) return;
-    const separator = formData.familyNotes.trim().length > 0 && !formData.familyNotes.trim().endsWith(',') ? ',' : '';
-    const newString = formData.familyNotes + separator + newFamilyMember.trim();
-    
-    const updatedData = { ...formData, familyNotes: newString };
-    setFormData(updatedData);
-    setNewFamilyMember("");
-    await handleSave(updatedData);
-  };
-
-  const parseFamilyData = (rawString: string) => {
-    if (!rawString) return [];
-    
-    const regex = /([^\s,()][^,()]*?)\s*\(([^)]+)\)/g;
-    const matches = [...rawString.matchAll(regex)];
-
-    if (matches.length === 0 && rawString.length > 5) {
-      return rawString.split(',').map(s => ({ name: s.trim(), relationFull: 'Note', tag: '?', original: s }));
-    }
-
-    return matches.map(match => {
-      const name = match[1].trim();
-      const tag = match[2].toUpperCase().trim();
-      let relationFull = tag;
-      
-      if (tag === 'W') relationFull = 'Wife';
-      else if (tag === 'H') relationFull = 'Husband';
-      else if (tag === 'S') relationFull = 'Son';
-      else if (tag === 'D') relationFull = 'Daughter';
-      else if (tag === 'M') relationFull = 'Mother';
-      else if (tag === 'F') relationFull = 'Father';
-
-      return { name, relationFull, tag, original: match[0] };
-    });
-  };
-
-  const parsedFamily = parseFamilyData(formData.familyNotes);
-
   return (
     <div className="animate-fade-in-up relative">
-      
       {/* EDIT TOGGLE */}
       <div className="absolute top-0 right-0">
         {!isEditing ? (
@@ -370,7 +451,7 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
         )}
       </div>
 
-      {/* HEADER: Label Name */}
+      {/* HEADER: Display Name */}
       <div className="flex items-center space-x-5 mb-8 pb-6 border-b border-gray-100 pr-20">
         <div className="h-20 w-20 bg-gradient-to-br from-[#F37021] to-[#D95D15] rounded-full flex items-center justify-center text-white text-3xl font-bold shadow-md flex-shrink-0">
           {formData.labelName ? formData.labelName[0] : (formData.firstName ? formData.firstName[0] : "?")}
@@ -378,11 +459,9 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
         <div className="w-full">
           {isEditing ? (
             <div className="space-y-2">
-               {/* 1. UPDATED HEADER */}
                <label className="text-xs font-bold text-gray-400">DISPLAY NAME</label>
                <input name="labelName" value={formData.labelName} onChange={handleChange} className="border p-2 rounded w-full text-xl font-bold text-[#8B2323]" />
                
-               {/* 2. UPDATED INPUTS WITH LABELS */}
                <div className="flex gap-2 pt-2">
                  <div className="w-1/2">
                    <input name="firstName" value={formData.firstName} onChange={handleChange} className="border p-2 rounded w-full text-sm" placeholder="First Name" />
@@ -434,51 +513,122 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
         </div>
       </div>
 
-      {/* FAMILY SECTION */}
-      <div>
-        <h3 className="text-xl font-bold text-[#8B2323] mb-4 flex items-center gap-2">Family Unit</h3>
-        
-        {isEditing && (
-           <div className="mb-4">
-             <label className="text-xs font-bold text-gray-400 block mb-1">RAW DATA (Format: Name(Rel), Name(Rel))</label>
-             <textarea name="familyNotes" value={formData.familyNotes} onChange={handleChange} className="w-full p-2 border rounded font-mono text-sm h-24" />
-           </div>
-        )}
+      {/* NEW FAMILY GUI COMPONENT */}
+      <FamilyEditor 
+        rawFamilyString={formData.familyNotes} 
+        isEditing={isEditing} 
+        onUpdate={(newString) => {
+             // Just update local state for now; the main SAVE button commits it to server
+             setFormData(prev => ({ ...prev, familyNotes: newString }));
+        }} 
+      />
+    </div>
+  );
+}
 
-        {!isEditing && (
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-            {parsedFamily.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {parsedFamily.map((fm, idx) => (
-                  <div key={idx} className="inline-flex items-center bg-orange-50 border border-orange-100 rounded-full px-1 py-1 pr-4">
-                    <span className="w-8 h-8 rounded-full bg-[#F37021] text-white flex items-center justify-center text-xs font-bold mr-3">
-                      {fm.tag}
-                    </span>
-                    <div className="flex flex-col leading-tight">
-                      <span className="font-bold text-gray-800 text-sm">{fm.name}</span>
-                      <span className="text-[10px] text-gray-500 uppercase">{fm.relationFull}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-400 italic text-center">No family data recorded.</p>
-            )}
+// --- VISUAL FAMILY EDITOR COMPONENT ---
+function FamilyEditor({ rawFamilyString, isEditing, onUpdate }: { rawFamilyString: string, isEditing: boolean, onUpdate: (s: string) => void }) {
+  // Parse string to objects
+  const parse = (str: string) => {
+      if(!str) return [];
+      const regex = /([^\s,()][^,()]*?)\s*\(([^)]+)\)/g;
+      const matches = [...str.matchAll(regex)];
+      if (matches.length === 0 && str.length > 3) {
+          // Fallback
+          return str.split(',').map(s => ({ name: s.trim(), tag: '?' }));
+      }
+      return matches.map(m => ({ name: m[1].trim(), tag: m[2].toUpperCase().trim() }));
+  };
+
+  const familyList = parse(rawFamilyString);
+  
+  // Local state for the "Add New" inputs
+  const [newName, setNewName] = useState("");
+  const [newRel, setNewRel] = useState("W");
+
+  // Helper to convert objects back to string: "Name(Tag), Name(Tag)"
+  const serialize = (list: {name: string, tag: string}[]) => {
+      return list.map(item => `${item.name}(${item.tag})`).join(',');
+  };
+
+  const addMember = () => {
+      if(!newName) return;
+      const newList = [...familyList, { name: newName, tag: newRel }];
+      onUpdate(serialize(newList));
+      setNewName("");
+  };
+
+  const removeMember = (index: number) => {
+      const newList = [...familyList];
+      newList.splice(index, 1);
+      onUpdate(serialize(newList));
+  };
+
+  // Tag to Full Name Map
+  const relMap: Record<string, string> = { 'W': 'Wife', 'H': 'Husband', 'S': 'Son', 'D': 'Daughter', 'M': 'Mother', 'F': 'Father' };
+
+  return (
+    <div>
+        <h3 className="text-xl font-bold text-[#8B2323] mb-4 flex items-center gap-2">Family Unit</h3>
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             
-            <div className="mt-6 pt-4 border-t border-dashed border-gray-200 flex gap-2">
-              <input 
-                type="text" 
-                placeholder="Name(Rel) e.g. Amit(S)" 
-                className="flex-1 border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-[#F37021]"
-                value={newFamilyMember}
-                onChange={(e) => setNewFamilyMember(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddFamily()}
-              />
-              <button onClick={handleAddFamily} disabled={isSaving || !newFamilyMember} className="bg-[#8B2323] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#6d1b1b]">Add</button>
+            {/* LIST VIEW */}
+            <div className="flex flex-wrap gap-2 mb-4">
+                {familyList.length > 0 ? familyList.map((fm, idx) => (
+                    <div key={idx} className="inline-flex items-center bg-orange-50 border border-orange-100 rounded-full pl-1 pr-3 py-1">
+                        <span className="w-8 h-8 rounded-full bg-[#F37021] text-white flex items-center justify-center text-xs font-bold mr-3">
+                            {fm.tag}
+                        </span>
+                        <div className="flex flex-col leading-tight mr-2">
+                            <span className="font-bold text-gray-800 text-sm">{fm.name}</span>
+                            <span className="text-[10px] text-gray-500 uppercase">{relMap[fm.tag] || fm.tag}</span>
+                        </div>
+                        {isEditing && (
+                            <button onClick={() => removeMember(idx)} className="text-red-400 hover:text-red-600 ml-1">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        )}
+                    </div>
+                )) : (
+                    <p className="text-gray-400 italic text-center w-full">No family data recorded.</p>
+                )}
             </div>
-          </div>
-        )}
-      </div>
+
+            {/* ADD INTERFACE (Only visible in Edit Mode) */}
+            {isEditing && (
+                <div className="mt-4 pt-4 border-t border-dashed border-gray-200">
+                    <p className="text-xs font-bold text-gray-400 mb-2 uppercase">Add Family Member</p>
+                    <div className="flex gap-2">
+                        <input 
+                            placeholder="Name" 
+                            className="flex-1 border p-2 rounded text-sm"
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && addMember()}
+                        />
+                        <select 
+                            className="border p-2 rounded text-sm bg-gray-50"
+                            value={newRel}
+                            onChange={(e) => setNewRel(e.target.value)}
+                        >
+                            <option value="W">Wife</option>
+                            <option value="H">Husband</option>
+                            <option value="S">Son</option>
+                            <option value="D">Daughter</option>
+                            <option value="F">Father</option>
+                            <option value="M">Mother</option>
+                        </select>
+                        <button 
+                            onClick={addMember}
+                            disabled={!newName}
+                            className="bg-green-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-green-700 disabled:opacity-50"
+                        >
+                            Add
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
     </div>
   );
 }
