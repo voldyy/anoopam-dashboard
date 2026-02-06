@@ -33,26 +33,45 @@ export default function DashboardInner() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // NEW: Progress State
+  const [loadedCount, setLoadedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+
   const fetchAllMembers = async () => {
     const provider = Providers.globalProvider;
     
     if (provider && provider.state === ProviderState.SignedIn) {
       setIsSignedIn(true);
       setLoading(true);
+      setLoadedCount(0);
+      setTotalCount(0);
+
       try {
         const client = provider.graph.client;
+        
+        // 1. Get the TOTAL number of items first (for the progress bar)
+        const listInfo = await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}`).select('list').get();
+        // The API returns a 'list' object with 'itemCount' inside
+        const estimatedTotal = listInfo.list?.itemCount || 100;
+        setTotalCount(estimatedTotal);
+
+        // 2. Start the Loop
         let allItems: Member[] = [];
         let nextLink = `/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items?expand=fields&$top=999`;
+        let currentProgress = 0;
 
         while (nextLink) {
           const response = await client.api(nextLink).get();
           if (response.value) {
             allItems = [...allItems, ...response.value];
+            
+            // Update Progress
+            currentProgress += response.value.length;
+            setLoadedCount(currentProgress);
           }
           nextLink = response['@odata.nextLink'];
         }
         
-        // Sort by the Label Name (field_19)
         allItems.sort((a, b) => (a.fields.field_19 || "").localeCompare(b.fields.field_19 || ""));
         setMembers(allItems);
         
@@ -99,6 +118,9 @@ export default function DashboardInner() {
     });
   }, [members, searchQuery]);
 
+  // Calculate Percentage for Display
+  const progressPercentage = totalCount > 0 ? Math.min(100, Math.round((loadedCount / totalCount) * 100)) : 0;
+
   return (
     <div className="min-h-screen bg-[#FFF8F0] font-sans text-gray-800">
       {/* HEADER */}
@@ -123,7 +145,7 @@ export default function DashboardInner() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 h-[80vh]">
             
-            {/* LEFT COLUMN */}
+            {/* LEFT COLUMN: Search & List */}
             <div className="md:col-span-4 bg-white shadow-lg rounded-xl overflow-hidden flex flex-col h-full border border-gray-100">
               <div className="p-4 bg-[#FFF8F0] border-b border-orange-100">
                 <input 
@@ -139,33 +161,49 @@ export default function DashboardInner() {
               </div>
               
               <div className="overflow-y-auto flex-1 p-2 scrollbar-thin scrollbar-thumb-orange-200">
-                {loading && filteredMembers.length === 0 && (
-                  <p className="text-center text-gray-500 py-10 animate-pulse">Loading directory...</p>
+                
+                {/* --- PROGRESS BAR --- */}
+                {loading && (
+                  <div className="p-6 text-center">
+                    <p className="text-[#8B2323] font-bold mb-2 animate-pulse">Fetching Directory...</p>
+                    <div className="w-full bg-gray-200 rounded-full h-4 mb-2 overflow-hidden shadow-inner">
+                      <div 
+                        className="bg-[#F37021] h-4 rounded-full transition-all duration-300 ease-out" 
+                        style={{ width: `${progressPercentage}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-gray-500 font-mono">
+                      Loaded {loadedCount} of ~{totalCount} entries ({progressPercentage}%)
+                    </p>
+                  </div>
                 )}
-                <ul className="space-y-1">
-                  {filteredMembers.map((member: Member) => (
-                    <li 
-                      key={member.id}
-                      onClick={() => setSelectedMember(member)}
-                      className={`p-3 rounded-lg cursor-pointer transition duration-150 ease-in-out border-l-4 
-                        ${selectedMember?.id === member.id 
-                          ? 'bg-orange-50 border-[#F37021] shadow-sm' 
-                          : 'border-transparent hover:bg-gray-50 hover:border-orange-200'}`}
-                    >
-                      <div className="font-bold text-gray-800 text-base">
-                        {member.fields.field_19 || `${member.fields.field_3} ${member.fields.field_5}`}
-                      </div>
-                      <div className="text-xs text-gray-500 truncate flex items-center gap-1 mt-1">
-                        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                        {member.fields.field_21 || "City N/A"}, {member.fields.field_22 || ""}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                
+                {!loading && (
+                  <ul className="space-y-1">
+                    {filteredMembers.map((member: Member) => (
+                      <li 
+                        key={member.id}
+                        onClick={() => setSelectedMember(member)}
+                        className={`p-3 rounded-lg cursor-pointer transition duration-150 ease-in-out border-l-4 
+                          ${selectedMember?.id === member.id 
+                            ? 'bg-orange-50 border-[#F37021] shadow-sm' 
+                            : 'border-transparent hover:bg-gray-50 hover:border-orange-200'}`}
+                      >
+                        <div className="font-bold text-gray-800 text-base">
+                          {member.fields.field_19 || `${member.fields.field_3} ${member.fields.field_5}`}
+                        </div>
+                        <div className="text-xs text-gray-500 truncate flex items-center gap-1 mt-1">
+                          <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                          {member.fields.field_21 || "City N/A"}, {member.fields.field_22 || ""}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
 
-            {/* RIGHT COLUMN */}
+            {/* RIGHT COLUMN: Details */}
             <div className="md:col-span-8 bg-white shadow-lg rounded-xl overflow-y-auto h-full border border-gray-100 p-8 relative">
               {selectedMember ? (
                 <MemberDetailView 
@@ -262,7 +300,6 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
 
   const handleAddFamily = async () => {
     if(!newFamilyMember) return;
-    // Add comma for cleanliness if there is already data
     const separator = formData.familyNotes.trim().length > 0 && !formData.familyNotes.trim().endsWith(',') ? ',' : '';
     const newString = formData.familyNotes + separator + newFamilyMember.trim();
     
@@ -272,17 +309,13 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
     await handleSave(updatedData);
   };
 
-  // --- IMPROVED FAMILY PARSER ---
-  // Uses Regex to find pattern "Name(Tag)" even if missing commas
   const parseFamilyData = (rawString: string) => {
     if (!rawString) return [];
     
-    // REGEX: Match anything that is NOT a separator, followed by parens with content
     const regex = /([^\s,()][^,()]*?)\s*\(([^)]+)\)/g;
     const matches = [...rawString.matchAll(regex)];
 
     if (matches.length === 0 && rawString.length > 5) {
-      // Fallback: If regex fails but there's text, try simple split as last resort
       return rawString.split(',').map(s => ({ name: s.trim(), relationFull: 'Note', tag: '?', original: s }));
     }
 
@@ -352,19 +385,16 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
       
       {/* FIELDS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        {/* Phone */}
         <div className="p-5 bg-[#FFF8F0] rounded-xl border border-orange-100">
           <label className="text-xs font-bold text-[#F37021] uppercase tracking-wide mb-1 block">Phone</label>
           {isEditing ? <input name="phone" value={formData.phone} onChange={handleChange} className="w-full p-2 border rounded" /> : <div className="text-lg font-medium">{formData.phone || "N/A"}</div>}
         </div>
         
-        {/* Email */}
         <div className="p-5 bg-[#FFF8F0] rounded-xl border border-orange-100">
           <label className="text-xs font-bold text-[#F37021] uppercase tracking-wide mb-1 block">Email</label>
            {isEditing ? <input name="email" value={formData.email} onChange={handleChange} className="w-full p-2 border rounded" /> : <div className="text-lg font-medium break-all">{formData.email || "N/A"}</div>}
         </div>
 
-        {/* Address */}
         <div className="p-5 bg-[#FFF8F0] rounded-xl border border-orange-100 md:col-span-2">
           <label className="text-xs font-bold text-[#F37021] uppercase tracking-wide mb-1 block">Address</label>
           {isEditing ? (
@@ -386,7 +416,6 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
       <div>
         <h3 className="text-xl font-bold text-[#8B2323] mb-4 flex items-center gap-2">Family Unit</h3>
         
-        {/* RAW EDIT MODE */}
         {isEditing && (
            <div className="mb-4">
              <label className="text-xs font-bold text-gray-400 block mb-1">RAW DATA (Format: Name(Rel), Name(Rel))</label>
@@ -394,7 +423,6 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
            </div>
         )}
 
-        {/* VISUAL DISPLAY */}
         {!isEditing && (
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             {parsedFamily.length > 0 ? (
