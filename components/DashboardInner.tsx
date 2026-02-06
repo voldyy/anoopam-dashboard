@@ -4,25 +4,25 @@ import { Providers, ProviderState } from '@microsoft/mgt-element';
 import { useState, useEffect, useMemo } from 'react';
 
 // --- CONFIGURATION ---
-// I moved these to the top so they are easier to manage
 const CONFIG = {
   siteId: 'anoopammissioninc.sharepoint.com,760b9c3c-5660-4836-a4ba-c076395aaeab,8d69c014-e7db-4116-a6c3-4517fa4c292e',
   listId: '1adbed0e-e84b-4512-ad17-8cbfc7ab2041'
 };
 
-// Define structure
+// Define structure with new fields
 type Member = {
   id: string;
   fields: {
     field_3: string;  // firstName
     field_5: string;  // lastName
+    field_19: string; // Name on Address Label (Main Display)
     field_20: string; // street
     field_21: string; // city
     field_22: string; // state
     field_23: string; // zip
     field_9: string;  // phone
     field_17: string; // email
-    FamilyNotes?: string; // Ensure this matches your actual column name/ID if different
+    field_33: string; // Notes (Family Data: "Name(Rel),Name(Rel)")
   };
 };
 
@@ -33,7 +33,6 @@ export default function DashboardInner() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Function to load (or reload) data
   const fetchAllMembers = async () => {
     const provider = Providers.globalProvider;
     
@@ -42,7 +41,6 @@ export default function DashboardInner() {
       setLoading(true);
       try {
         const client = provider.graph.client;
-        
         let allItems: Member[] = [];
         let nextLink = `/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items?expand=fields&$top=999`;
 
@@ -54,10 +52,10 @@ export default function DashboardInner() {
           nextLink = response['@odata.nextLink'];
         }
         
-        allItems.sort((a, b) => (a.fields.field_3 || "").localeCompare(b.fields.field_3 || ""));
+        // Sort by the Label Name (field_19)
+        allItems.sort((a, b) => (a.fields.field_19 || "").localeCompare(b.fields.field_19 || ""));
         setMembers(allItems);
         
-        // If we currently have a member selected, refresh their data specifically
         if (selectedMember) {
           const updatedSelected = allItems.find(m => m.id === selectedMember.id);
           if (updatedSelected) setSelectedMember(updatedSelected);
@@ -81,21 +79,27 @@ export default function DashboardInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Filter Logic
+  // --- ROBUST SEARCH LOGIC ---
   const filteredMembers = useMemo(() => {
     if (!searchQuery) return members;
     const lowerQuery = searchQuery.toLowerCase();
     
+    // Split query into words (e.g., "Mihir Patel" -> ["mihir", "patel"])
+    const queryParts = lowerQuery.split(' ').filter(q => q.trim() !== "");
+
     return members.filter(m => {
-      const first = (m.fields.field_3 || "").toLowerCase();
-      const last = (m.fields.field_5 || "").toLowerCase();
-      const phone = (m.fields.field_9 || "").toLowerCase();
-      const email = (m.fields.field_17 || "").toLowerCase();
-      
-      return first.includes(lowerQuery) || 
-             last.includes(lowerQuery) || 
-             phone.includes(lowerQuery) ||
-             email.includes(lowerQuery);
+      // Create a giant string of all searchable text for this person
+      const fullSearchText = `
+        ${m.fields.field_19 || ""} 
+        ${m.fields.field_3 || ""} 
+        ${m.fields.field_5 || ""} 
+        ${m.fields.field_9 || ""} 
+        ${m.fields.field_17 || ""} 
+        ${m.fields.field_33 || ""}
+      `.toLowerCase();
+
+      // Check if EVERY word in the query exists SOMEWHERE in that string
+      return queryParts.every(part => fullSearchText.includes(part));
     });
   }, [members, searchQuery]);
 
@@ -128,7 +132,7 @@ export default function DashboardInner() {
               <div className="p-4 bg-[#FFF8F0] border-b border-orange-100">
                 <input 
                   type="text" 
-                  placeholder="Search members..." 
+                  placeholder="Search (Name, Label, Phone)..." 
                   className="w-full p-3 rounded-lg border border-gray-300 focus:border-[#F37021] focus:ring-2 focus:ring-orange-200 outline-none transition"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -152,12 +156,15 @@ export default function DashboardInner() {
                           ? 'bg-orange-50 border-[#F37021] shadow-sm' 
                           : 'border-transparent hover:bg-gray-50 hover:border-orange-200'}`}
                     >
-                      <div className="font-bold text-gray-800">
-                        {member.fields.field_3 || "Unknown"} {member.fields.field_5 || ""}
+                      {/* Main Display: field_19 (Label Name) */}
+                      <div className="font-bold text-gray-800 text-base">
+                        {member.fields.field_19 || `${member.fields.field_3} ${member.fields.field_5}`}
                       </div>
-                      <div className="text-xs text-gray-500 truncate flex items-center gap-1">
-                        <span className={`w-2 h-2 rounded-full inline-block ${member.fields.field_17 ? 'bg-green-400' : 'bg-gray-300'}`}></span>
-                        {member.fields.field_17 || "No Email"}
+                      
+                      {/* Sub Display: City, State */}
+                      <div className="text-xs text-gray-500 truncate flex items-center gap-1 mt-1">
+                        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        {member.fields.field_21 || "City N/A"}, {member.fields.field_22 || ""}
                       </div>
                     </li>
                   ))}
@@ -186,15 +193,15 @@ export default function DashboardInner() {
   );
 }
 
-// --- DETAIL COMPONENT WITH EDIT LOGIC ---
+// --- DETAIL COMPONENT ---
 
 function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefreshRequest: () => void }) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [newFamilyMember, setNewFamilyMember] = useState("");
   
-  // Local state for form fields
   const [formData, setFormData] = useState({
+    labelName: "",
     firstName: "",
     lastName: "",
     phone: "",
@@ -203,12 +210,12 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
     city: "",
     state: "",
     zip: "",
-    familyRaw: ""
+    familyNotes: "" // field_33
   });
 
-  // Reset form when member selection changes
   useEffect(() => {
     setFormData({
+      labelName: member.fields.field_19 || "",
       firstName: member.fields.field_3 || "",
       lastName: member.fields.field_5 || "",
       phone: member.fields.field_9 || "",
@@ -217,17 +224,15 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
       city: member.fields.field_21 || "",
       state: member.fields.field_22 || "",
       zip: member.fields.field_23 || "",
-      familyRaw: member.fields.FamilyNotes || ""
+      familyNotes: member.fields.field_33 || ""
     });
-    setIsEditing(false); // Exit edit mode when switching users
+    setIsEditing(false);
   }, [member]);
 
-  // Handle generic input changes
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // --- SAVE FUNCTION ---
   const handleSave = async (overrideData?: any) => {
     setIsSaving(true);
     const provider = Providers.globalProvider;
@@ -236,8 +241,8 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
         const client = provider.graph.client;
         const dataToSave = overrideData || formData;
 
-        // Construct the payload mapping our friendly names to ID names
         const payload = {
+            field_19: dataToSave.labelName,
             field_3: dataToSave.firstName,
             field_5: dataToSave.lastName,
             field_9: dataToSave.phone,
@@ -246,15 +251,14 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
             field_21: dataToSave.city,
             field_22: dataToSave.state,
             field_23: dataToSave.zip,
-            FamilyNotes: dataToSave.familyRaw // Update this ID if you find the real one
+            field_33: dataToSave.familyNotes
         };
 
-        // PATCH request to update specific fields
         await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}/items/${member.id}/fields`)
             .patch(payload);
         
         setIsEditing(false);
-        onRefreshRequest(); // Reload the list to show changes
+        onRefreshRequest();
       } catch (e) {
         alert("Error saving data. Check console.");
         console.error(e);
@@ -263,169 +267,172 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
     setIsSaving(false);
   };
 
-  // --- FAMILY LOGIC ---
   const handleAddFamily = async () => {
     if(!newFamilyMember) return;
-    
-    // Append to existing string
-    const currentList = formData.familyRaw ? formData.familyRaw.split(',') : [];
+    const currentList = formData.familyNotes ? formData.familyNotes.split(',') : [];
     currentList.push(newFamilyMember.trim());
-    const newString = currentList.join(', ');
+    const newString = currentList.join(',');
     
-    // Update local state
-    const updatedData = { ...formData, familyRaw: newString };
+    const updatedData = { ...formData, familyNotes: newString };
     setFormData(updatedData);
     setNewFamilyMember("");
-
-    // Save immediately
     await handleSave(updatedData);
   };
 
-  const parseFamily = (rawString: string) => {
+  // --- FAMILY PARSER ---
+  // Transforms "Diptiben(W)" -> { name: "Diptiben", relation: "Wife", tag: "W" }
+  const parseFamilyData = (rawString: string) => {
     if (!rawString) return [];
-    return rawString.split(',').map(s => s.trim()).filter(s => s !== "");
+    
+    return rawString.split(',').map(entry => {
+      const match = entry.trim().match(/^(.*?)\((.*?)\)$/);
+      if (match) {
+        const name = match[1];
+        const tag = match[2].toUpperCase(); // W, D, S, H
+        let relationFull = tag;
+        
+        // Map abbreviations to full names
+        if (tag === 'W') relationFull = 'Wife';
+        else if (tag === 'H') relationFull = 'Husband';
+        else if (tag === 'S') relationFull = 'Son';
+        else if (tag === 'D') relationFull = 'Daughter';
+        else if (tag === 'M') relationFull = 'Mother';
+        else if (tag === 'F') relationFull = 'Father';
+
+        return { name, relationFull, tag, original: entry };
+      }
+      // Fallback if no parenthesis found
+      return { name: entry, relationFull: 'Member', tag: '?', original: entry };
+    }).filter(x => x.name.trim() !== "");
   };
-  const familyList = parseFamily(formData.familyRaw);
+
+  const parsedFamily = parseFamilyData(formData.familyNotes);
 
   return (
     <div className="animate-fade-in-up relative">
       
-      {/* EDIT TOGGLE BUTTON */}
+      {/* EDIT TOGGLE */}
       <div className="absolute top-0 right-0">
         {!isEditing ? (
-          <button 
-            onClick={() => setIsEditing(true)}
-            className="flex items-center gap-2 text-gray-500 hover:text-[#F37021] transition"
-          >
-            <span className="text-sm font-semibold">Edit Profile</span>
+          <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 text-gray-500 hover:text-[#F37021] transition">
+            <span className="text-sm font-semibold">Edit</span>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
           </button>
         ) : (
           <div className="flex gap-2">
-            <button 
-              onClick={() => setIsEditing(false)}
-              className="px-4 py-2 rounded text-sm text-gray-600 hover:bg-gray-100"
-              disabled={isSaving}
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={() => handleSave()}
-              disabled={isSaving}
-              className="px-4 py-2 rounded text-sm bg-green-600 text-white font-bold hover:bg-green-700 shadow-md flex items-center gap-2"
-            >
-              {isSaving ? "Saving..." : "Save Changes"}
+            <button onClick={() => setIsEditing(false)} className="px-4 py-2 rounded text-sm text-gray-600 hover:bg-gray-100" disabled={isSaving}>Cancel</button>
+            <button onClick={() => handleSave()} disabled={isSaving} className="px-4 py-2 rounded text-sm bg-green-600 text-white font-bold hover:bg-green-700 shadow-md">
+              {isSaving ? "Saving..." : "Save"}
             </button>
           </div>
         )}
       </div>
 
-      {/* HEADER */}
+      {/* HEADER: Label Name */}
       <div className="flex items-center space-x-5 mb-8 pb-6 border-b border-gray-100 pr-20">
         <div className="h-20 w-20 bg-gradient-to-br from-[#F37021] to-[#D95D15] rounded-full flex items-center justify-center text-white text-3xl font-bold shadow-md flex-shrink-0">
-          {formData.firstName ? formData.firstName[0] : "?"}
+          {formData.labelName ? formData.labelName[0] : (formData.firstName ? formData.firstName[0] : "?")}
         </div>
         <div className="w-full">
           {isEditing ? (
-            <div className="flex gap-2">
-               <input name="firstName" value={formData.firstName} onChange={handleChange} className="border p-2 rounded w-1/2 text-xl font-bold text-[#8B2323]" placeholder="First Name" />
-               <input name="lastName" value={formData.lastName} onChange={handleChange} className="border p-2 rounded w-1/2 text-xl font-bold text-[#8B2323]" placeholder="Last Name" />
+            <div className="space-y-2">
+               <label className="text-xs font-bold text-gray-400">LABEL NAME</label>
+               <input name="labelName" value={formData.labelName} onChange={handleChange} className="border p-2 rounded w-full text-xl font-bold text-[#8B2323]" />
+               <div className="flex gap-2">
+                 <input name="firstName" value={formData.firstName} onChange={handleChange} className="border p-2 rounded w-1/2 text-sm" placeholder="First Name" />
+                 <input name="lastName" value={formData.lastName} onChange={handleChange} className="border p-2 rounded w-1/2 text-sm" placeholder="Last Name" />
+               </div>
             </div>
           ) : (
-            <h2 className="text-4xl font-bold text-[#8B2323] tracking-tight">
-              {formData.firstName} {formData.lastName}
-            </h2>
+            <div>
+              <h2 className="text-3xl font-bold text-[#8B2323] tracking-tight">
+                {formData.labelName || `${formData.firstName} ${formData.lastName}`}
+              </h2>
+              <p className="text-gray-500 text-sm mt-1">{formData.firstName} {formData.lastName}</p>
+            </div>
           )}
-          <span className="mt-2 inline-flex items-center px-3 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800 uppercase tracking-wide">
-            Verified Member
-          </span>
         </div>
       </div>
       
       {/* FIELDS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        
         {/* Phone */}
-        <div className="p-6 bg-[#FFF8F0] rounded-xl border border-orange-100 transition">
+        <div className="p-5 bg-[#FFF8F0] rounded-xl border border-orange-100">
           <label className="text-xs font-bold text-[#F37021] uppercase tracking-wide mb-1 block">Phone</label>
-          {isEditing ? (
-            <input name="phone" value={formData.phone} onChange={handleChange} className="w-full p-2 border rounded" />
-          ) : (
-            <div className="text-xl text-gray-800 font-medium">{formData.phone || "N/A"}</div>
-          )}
+          {isEditing ? <input name="phone" value={formData.phone} onChange={handleChange} className="w-full p-2 border rounded" /> : <div className="text-lg font-medium">{formData.phone || "N/A"}</div>}
         </div>
         
         {/* Email */}
-        <div className="p-6 bg-[#FFF8F0] rounded-xl border border-orange-100 transition">
+        <div className="p-5 bg-[#FFF8F0] rounded-xl border border-orange-100">
           <label className="text-xs font-bold text-[#F37021] uppercase tracking-wide mb-1 block">Email</label>
-           {isEditing ? (
-            <input name="email" value={formData.email} onChange={handleChange} className="w-full p-2 border rounded" />
-          ) : (
-            <div className="text-xl text-gray-800 font-medium break-all">{formData.email || "N/A"}</div>
-          )}
+           {isEditing ? <input name="email" value={formData.email} onChange={handleChange} className="w-full p-2 border rounded" /> : <div className="text-lg font-medium break-all">{formData.email || "N/A"}</div>}
         </div>
 
         {/* Address */}
-        <div className="p-6 bg-[#FFF8F0] rounded-xl border border-orange-100 md:col-span-2 transition">
+        <div className="p-5 bg-[#FFF8F0] rounded-xl border border-orange-100 md:col-span-2">
           <label className="text-xs font-bold text-[#F37021] uppercase tracking-wide mb-1 block">Address</label>
           {isEditing ? (
             <div className="grid grid-cols-2 gap-2">
-               <input name="street" value={formData.street} onChange={handleChange} className="col-span-2 p-2 border rounded" placeholder="Street Address" />
-               <input name="city" value={formData.city} onChange={handleChange} className="p-2 border rounded" placeholder="City" />
+               <input name="street" value={formData.street} onChange={handleChange} className="col-span-2 p-2 border rounded" />
+               <input name="city" value={formData.city} onChange={handleChange} className="p-2 border rounded" />
                <div className="flex gap-2">
-                 <input name="state" value={formData.state} onChange={handleChange} className="w-1/3 p-2 border rounded" placeholder="State" />
-                 <input name="zip" value={formData.zip} onChange={handleChange} className="w-2/3 p-2 border rounded" placeholder="Zip" />
+                 <input name="state" value={formData.state} onChange={handleChange} className="w-1/3 p-2 border rounded" />
+                 <input name="zip" value={formData.zip} onChange={handleChange} className="w-2/3 p-2 border rounded" />
                </div>
             </div>
           ) : (
-            <div className="text-xl text-gray-800 font-medium">
-              {formData.street}<br/>
-              {formData.city ? `${formData.city},` : ""} {formData.state} {formData.zip}
-            </div>
+            <div className="text-lg font-medium">{formData.street}<br/>{formData.city ? `${formData.city},` : ""} {formData.state} {formData.zip}</div>
           )}
         </div>
       </div>
 
       {/* FAMILY SECTION */}
       <div>
-        <h3 className="text-xl font-bold text-[#8B2323] mb-4 flex items-center gap-2">
-           Family Unit
-           <span className="h-px bg-gray-200 flex-1 ml-4"></span>
-        </h3>
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          {familyList.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {familyList.map((fm, idx) => (
-                <span key={idx} className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-orange-50 text-[#D95D15] border border-orange-100">
-                  {fm}
-                </span>
-              ))}
+        <h3 className="text-xl font-bold text-[#8B2323] mb-4 flex items-center gap-2">Family Unit</h3>
+        
+        {/* RAW EDIT MODE for Family (Safest for bulk changes) */}
+        {isEditing && (
+           <div className="mb-4">
+             <label className="text-xs font-bold text-gray-400 block mb-1">RAW DATA (Format: Name(Rel), Name(Rel))</label>
+             <textarea name="familyNotes" value={formData.familyNotes} onChange={handleChange} className="w-full p-2 border rounded font-mono text-sm h-24" />
+           </div>
+        )}
+
+        {/* VISUAL DISPLAY */}
+        {!isEditing && (
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            {parsedFamily.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {parsedFamily.map((fm, idx) => (
+                  <div key={idx} className="inline-flex items-center bg-orange-50 border border-orange-100 rounded-full px-1 py-1 pr-4">
+                    <span className="w-8 h-8 rounded-full bg-[#F37021] text-white flex items-center justify-center text-xs font-bold mr-3">
+                      {fm.tag}
+                    </span>
+                    <div className="flex flex-col leading-tight">
+                      <span className="font-bold text-gray-800 text-sm">{fm.name}</span>
+                      <span className="text-[10px] text-gray-500 uppercase">{fm.relationFull}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-400 italic text-center">No family data recorded.</p>
+            )}
+            
+            <div className="mt-6 pt-4 border-t border-dashed border-gray-200 flex gap-2">
+              <input 
+                type="text" 
+                placeholder="Name(Rel) e.g. Amit(S)" 
+                className="flex-1 border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-[#F37021]"
+                value={newFamilyMember}
+                onChange={(e) => setNewFamilyMember(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddFamily()}
+              />
+              <button onClick={handleAddFamily} disabled={isSaving || !newFamilyMember} className="bg-[#8B2323] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#6d1b1b]">Add</button>
             </div>
-          ) : (
-            <div className="text-center py-4">
-              <p className="text-gray-400 italic">No family data recorded.</p>
-            </div>
-          )}
-          
-          {/* Add Family Input (Always visible for quick access) */}
-          <div className="mt-6 pt-4 border-t border-dashed border-gray-200 flex gap-2">
-            <input 
-              type="text" 
-              placeholder="Add family member (e.g. Son: Amit)" 
-              className="flex-1 border border-gray-300 rounded-lg p-2 text-sm focus:border-[#F37021] focus:ring-1 focus:ring-[#F37021] outline-none"
-              value={newFamilyMember}
-              onChange={(e) => setNewFamilyMember(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddFamily()}
-            />
-            <button 
-              onClick={handleAddFamily}
-              disabled={isSaving || !newFamilyMember}
-              className="bg-[#8B2323] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#6d1b1b] transition disabled:opacity-50"
-            >
-              {isSaving ? "..." : "Add"}
-            </button>
+            <p className="text-[10px] text-gray-400 mt-2 text-right">Use (W)ife, (H)usband, (S)on, (D)aughter</p>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
