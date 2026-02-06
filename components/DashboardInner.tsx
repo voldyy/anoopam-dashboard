@@ -9,7 +9,7 @@ const CONFIG = {
   listId: '1adbed0e-e84b-4512-ad17-8cbfc7ab2041'
 };
 
-// Define structure with new fields
+// Define structure
 type Member = {
   id: string;
   fields: {
@@ -22,7 +22,7 @@ type Member = {
     field_23: string; // zip
     field_9: string;  // phone
     field_17: string; // email
-    field_33: string; // Notes (Family Data: "Name(Rel),Name(Rel)")
+    field_33: string; // Notes (Family Data)
   };
 };
 
@@ -83,12 +83,9 @@ export default function DashboardInner() {
   const filteredMembers = useMemo(() => {
     if (!searchQuery) return members;
     const lowerQuery = searchQuery.toLowerCase();
-    
-    // Split query into words (e.g., "Mihir Patel" -> ["mihir", "patel"])
     const queryParts = lowerQuery.split(' ').filter(q => q.trim() !== "");
 
     return members.filter(m => {
-      // Create a giant string of all searchable text for this person
       const fullSearchText = `
         ${m.fields.field_19 || ""} 
         ${m.fields.field_3 || ""} 
@@ -98,7 +95,6 @@ export default function DashboardInner() {
         ${m.fields.field_33 || ""}
       `.toLowerCase();
 
-      // Check if EVERY word in the query exists SOMEWHERE in that string
       return queryParts.every(part => fullSearchText.includes(part));
     });
   }, [members, searchQuery]);
@@ -127,7 +123,7 @@ export default function DashboardInner() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 h-[80vh]">
             
-            {/* LEFT COLUMN: Search & List */}
+            {/* LEFT COLUMN */}
             <div className="md:col-span-4 bg-white shadow-lg rounded-xl overflow-hidden flex flex-col h-full border border-gray-100">
               <div className="p-4 bg-[#FFF8F0] border-b border-orange-100">
                 <input 
@@ -156,12 +152,9 @@ export default function DashboardInner() {
                           ? 'bg-orange-50 border-[#F37021] shadow-sm' 
                           : 'border-transparent hover:bg-gray-50 hover:border-orange-200'}`}
                     >
-                      {/* Main Display: field_19 (Label Name) */}
                       <div className="font-bold text-gray-800 text-base">
                         {member.fields.field_19 || `${member.fields.field_3} ${member.fields.field_5}`}
                       </div>
-                      
-                      {/* Sub Display: City, State */}
                       <div className="text-xs text-gray-500 truncate flex items-center gap-1 mt-1">
                         <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                         {member.fields.field_21 || "City N/A"}, {member.fields.field_22 || ""}
@@ -172,7 +165,7 @@ export default function DashboardInner() {
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Details */}
+            {/* RIGHT COLUMN */}
             <div className="md:col-span-8 bg-white shadow-lg rounded-xl overflow-y-auto h-full border border-gray-100 p-8 relative">
               {selectedMember ? (
                 <MemberDetailView 
@@ -210,7 +203,7 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
     city: "",
     state: "",
     zip: "",
-    familyNotes: "" // field_33
+    familyNotes: ""
   });
 
   useEffect(() => {
@@ -269,9 +262,9 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
 
   const handleAddFamily = async () => {
     if(!newFamilyMember) return;
-    const currentList = formData.familyNotes ? formData.familyNotes.split(',') : [];
-    currentList.push(newFamilyMember.trim());
-    const newString = currentList.join(',');
+    // Add comma for cleanliness if there is already data
+    const separator = formData.familyNotes.trim().length > 0 && !formData.familyNotes.trim().endsWith(',') ? ',' : '';
+    const newString = formData.familyNotes + separator + newFamilyMember.trim();
     
     const updatedData = { ...formData, familyNotes: newString };
     setFormData(updatedData);
@@ -279,31 +272,34 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
     await handleSave(updatedData);
   };
 
-  // --- FAMILY PARSER ---
-  // Transforms "Diptiben(W)" -> { name: "Diptiben", relation: "Wife", tag: "W" }
+  // --- IMPROVED FAMILY PARSER ---
+  // Uses Regex to find pattern "Name(Tag)" even if missing commas
   const parseFamilyData = (rawString: string) => {
     if (!rawString) return [];
     
-    return rawString.split(',').map(entry => {
-      const match = entry.trim().match(/^(.*?)\((.*?)\)$/);
-      if (match) {
-        const name = match[1];
-        const tag = match[2].toUpperCase(); // W, D, S, H
-        let relationFull = tag;
-        
-        // Map abbreviations to full names
-        if (tag === 'W') relationFull = 'Wife';
-        else if (tag === 'H') relationFull = 'Husband';
-        else if (tag === 'S') relationFull = 'Son';
-        else if (tag === 'D') relationFull = 'Daughter';
-        else if (tag === 'M') relationFull = 'Mother';
-        else if (tag === 'F') relationFull = 'Father';
+    // REGEX: Match anything that is NOT a separator, followed by parens with content
+    const regex = /([^\s,()][^,()]*?)\s*\(([^)]+)\)/g;
+    const matches = [...rawString.matchAll(regex)];
 
-        return { name, relationFull, tag, original: entry };
-      }
-      // Fallback if no parenthesis found
-      return { name: entry, relationFull: 'Member', tag: '?', original: entry };
-    }).filter(x => x.name.trim() !== "");
+    if (matches.length === 0 && rawString.length > 5) {
+      // Fallback: If regex fails but there's text, try simple split as last resort
+      return rawString.split(',').map(s => ({ name: s.trim(), relationFull: 'Note', tag: '?', original: s }));
+    }
+
+    return matches.map(match => {
+      const name = match[1].trim();
+      const tag = match[2].toUpperCase().trim();
+      let relationFull = tag;
+      
+      if (tag === 'W') relationFull = 'Wife';
+      else if (tag === 'H') relationFull = 'Husband';
+      else if (tag === 'S') relationFull = 'Son';
+      else if (tag === 'D') relationFull = 'Daughter';
+      else if (tag === 'M') relationFull = 'Mother';
+      else if (tag === 'F') relationFull = 'Father';
+
+      return { name, relationFull, tag, original: match[0] };
+    });
   };
 
   const parsedFamily = parseFamilyData(formData.familyNotes);
@@ -336,7 +332,7 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
         <div className="w-full">
           {isEditing ? (
             <div className="space-y-2">
-               <label className="text-xs font-bold text-gray-400">LABEL NAME</label>
+               <label className="text-xs font-bold text-gray-400">LABEL NAME (e.g. Mihir & Rajvi Patel)</label>
                <input name="labelName" value={formData.labelName} onChange={handleChange} className="border p-2 rounded w-full text-xl font-bold text-[#8B2323]" />
                <div className="flex gap-2">
                  <input name="firstName" value={formData.firstName} onChange={handleChange} className="border p-2 rounded w-1/2 text-sm" placeholder="First Name" />
@@ -390,7 +386,7 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
       <div>
         <h3 className="text-xl font-bold text-[#8B2323] mb-4 flex items-center gap-2">Family Unit</h3>
         
-        {/* RAW EDIT MODE for Family (Safest for bulk changes) */}
+        {/* RAW EDIT MODE */}
         {isEditing && (
            <div className="mb-4">
              <label className="text-xs font-bold text-gray-400 block mb-1">RAW DATA (Format: Name(Rel), Name(Rel))</label>
@@ -430,7 +426,6 @@ function MemberDetailView({ member, onRefreshRequest }: { member: Member, onRefr
               />
               <button onClick={handleAddFamily} disabled={isSaving || !newFamilyMember} className="bg-[#8B2323] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#6d1b1b]">Add</button>
             </div>
-            <p className="text-[10px] text-gray-400 mt-2 text-right">Use (W)ife, (H)usband, (S)on, (D)aughter</p>
           </div>
         )}
       </div>
