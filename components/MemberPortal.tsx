@@ -2,26 +2,30 @@
 import { useState } from 'react';
 import MemberEditor, { MemberData } from './MemberEditor';
 
-// --- CONFIGURATION (SWAPPED) ---
+// --- CONFIGURATION ---
 
-// 1. EMAIL FLOW URL (Formerly Search)
-const EMAIL_FLOW_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b37112212bb144089cb86cbd98f99e96/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=32QsyLTj0Q726_mPLwc4rGJlxxt-qLJ7tMn5FrNi6OA";
+// 1. YOUR NEW EMAIL CHECK URL
+const EMAIL_CHECK_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/ee52a820eba44c49a741ee12a98ed271/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=A-mSK7Jdeu4R-plt0goqaxCc3jPSCeQftJq2VQQw3lo";
 
-// 2. SEARCH FLOW URL (Formerly Email)
+// 2. SEARCH FLOW URL
 const SEARCH_FLOW_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/40bb1695f27d4c3b9ed0a3f01e7ed7c4/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=qQAQKPv6MwtriFoAHCiGJlAyxej0pxTQF58J8T0Bki8";
+
+// 3. SEND OTP URL (Replace this when you create the OTP Flow)
+const SEND_OTP_URL    = "YOUR_SEND_OTP_FLOW_URL_HERE";
 
 export default function MemberPortal() {
   const [stage, setStage] = useState('LOGIN');
   const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState("");
+  const [otpInput, setOtpInput] = useState("");
   
-  // Search State
+  // Internal State for Security
+  const [generatedOtp, setGeneratedOtp] = useState(""); 
+  
+  // Search & Data State
   const [searchFirst, setSearchFirst] = useState("");
   const [searchLast, setSearchLast] = useState("");
   const [searchZip, setSearchZip] = useState("");
   const [searchResults, setSearchResults] = useState<MemberData[]>([]);
-  
-  // Data State
   const [activeMember, setActiveMember] = useState<MemberData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExistingUser, setIsExistingUser] = useState(false);
@@ -32,27 +36,30 @@ export default function MemberPortal() {
     setIsLoading(true);
 
     try {
-        console.log("Checking Email:", email); // Debug
-        // A. Check if Email Exists
-        const response = await fetch(EMAIL_FLOW_URL, {
+        // A. Generate Random 6-Digit Code
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        setGeneratedOtp(code);
+
+        // B. Check if Email Exists
+        console.log("Checking Email:", email);
+        const emailRes = await fetch(EMAIL_CHECK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: email })
         });
 
-        const text = await response.text();
-        console.log("Email Flow Raw Response:", text); // Debug
+        if (!emailRes.ok) {
+            const errText = await emailRes.text();
+            throw new Error("Email check failed: " + errText);
+        }
 
-        if (!response.ok) throw new Error("Email check failed: " + text);
-        
-        const result = JSON.parse(text);
+        const result = await emailRes.json();
+        console.log("Email Check Result:", result);
 
-        // Expecting Flow to return: { "found": true, "data": { ...SharePointItem... } }
         if (result.found && result.data) {
             setIsExistingUser(true);
             const raw = result.data;
-            
-            // Map SharePoint data to our format
+            // Map SharePoint data
             const foundMember: MemberData = {
                 id: raw.ID || raw.id,
                 fields: {
@@ -63,21 +70,21 @@ export default function MemberPortal() {
                 }
             };
             setActiveMember(foundMember);
-            console.log("User Found:", foundMember);
         } else {
-            console.log("User Not Found");
-            // New user
             setIsExistingUser(false);
             setActiveMember(null);
         }
 
-        // B. Simulate Sending OTP
-        alert(`(Simulation) OTP '123456' sent to ${email}`);
+        // C. Send OTP (Simulated for now until you create the Flow)
+        // const otpRes = await fetch(SEND_OTP_URL, { ... });
+        alert(`(Simulation) OTP '${code}' sent to ${email}`);
+        
+        // Move to next stage
         setStage('OTP');
 
     } catch (err) {
         console.error(err);
-        alert("System error checking email. Please check console.");
+        alert("System error. Please check console.");
     } finally {
         setIsLoading(false);
     }
@@ -86,13 +93,15 @@ export default function MemberPortal() {
   // --- 2. VERIFY OTP ---
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (otp !== '123456') { alert("Invalid OTP"); return; }
+    if (otpInput !== generatedOtp) { 
+        alert("Invalid Code. Please try again."); 
+        return; 
+    }
     
+    // Success! Route them correctly
     if (isExistingUser && activeMember) {
-        // Email match found -> Go straight to Editor
         setStage('EDITOR');
     } else {
-        // No match -> Go to Search/Create
         setStage('SEARCH');
     }
   };
@@ -102,8 +111,6 @@ export default function MemberPortal() {
     e.preventDefault();
     setIsLoading(true);
     setSearchResults([]);
-
-    console.log("Searching for:", { searchFirst, searchLast, searchZip });
 
     try {
         const response = await fetch(SEARCH_FLOW_URL, {
@@ -116,14 +123,8 @@ export default function MemberPortal() {
             })
         });
 
-        const text = await response.text();
-        console.log("Search Flow Raw Response:", text);
-
-        if (!response.ok) throw new Error("Search failed: " + text);
-        
-        const data = JSON.parse(text);
-        
-        // Handle if Power Automate returns array directly or { value: [] }
+        if (!response.ok) throw new Error("Search failed");
+        const data = await response.json();
         const results = Array.isArray(data) ? data : (data.value || []);
         
         const mappedResults: MemberData[] = results.map((item: any) => ({
@@ -137,17 +138,15 @@ export default function MemberPortal() {
         }));
 
         setSearchResults(mappedResults);
-        
     } catch (err) {
         console.error(err);
-        alert("Could not search directory. Check console for details.");
+        alert("Could not search directory.");
     } finally {
         setIsLoading(false);
     }
   };
 
   const handleConfirmMatch = (member: MemberData) => {
-    // Link the email to this record locally
     setActiveMember({ ...member, fields: { ...member.fields, field_17: email } });
     setStage('EDITOR');
   };
@@ -172,11 +171,11 @@ export default function MemberPortal() {
       {stage === 'LOGIN' && (
         <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center">
             <h1 className="text-3xl font-bold text-[#F37021] mb-2">Member Login</h1>
-            <p className="text-gray-500 mb-6">Enter your email to verify your identity.</p>
+            <p className="text-gray-500 mb-6">Enter your email to receive a verification code.</p>
             <form onSubmit={handleCheckEmail} className="space-y-4">
                 <input required type="email" placeholder="name@example.com" value={email} onChange={e => setEmail(e.target.value)} className={inputClass} />
                 <button type="submit" disabled={isLoading} className="w-full py-3 bg-[#8B2323] text-white font-bold rounded hover:bg-[#6d1b1b] disabled:opacity-50">
-                    {isLoading ? "Checking..." : "Next"}
+                    {isLoading ? "Sending Code..." : "Next"}
                 </button>
             </form>
         </div>
@@ -188,9 +187,10 @@ export default function MemberPortal() {
             <h1 className="text-2xl font-bold text-[#8B2323] mb-4">Enter Code</h1>
             <p className="text-gray-500 mb-6">We sent a code to {email}</p>
             <form onSubmit={handleVerifyOtp} className="space-y-4">
-                <input required type="text" placeholder="123456" value={otp} onChange={e => setOtp(e.target.value)} className={`${inputClass} text-center tracking-widest`} />
+                <input required type="text" placeholder="######" maxLength={6} value={otpInput} onChange={e => setOtpInput(e.target.value)} className={`${inputClass} text-center tracking-widest text-2xl`} />
                 <button type="submit" className="w-full py-3 bg-[#F37021] text-white font-bold rounded hover:bg-[#d95d15]">Verify</button>
             </form>
+            <button onClick={() => setStage('LOGIN')} className="text-sm text-gray-400 mt-4 underline">Wrong email?</button>
         </div>
       )}
 
@@ -198,7 +198,7 @@ export default function MemberPortal() {
       {stage === 'SEARCH' && (
         <div className="bg-white p-8 rounded-xl shadow-lg max-w-lg w-full">
             <h1 className="text-2xl font-bold text-[#8B2323] mb-2">Find Your Record</h1>
-            <p className="text-gray-500 mb-6 text-sm">We couldn't find an account with that email. Let's find you in the directory.</p>
+            <p className="text-gray-500 mb-6 text-sm">We couldn't find an account with that email. Search the directory to link your profile.</p>
             
             <form onSubmit={handleSearch} className="space-y-4">
                 <div className="flex gap-2">
@@ -240,8 +240,8 @@ export default function MemberPortal() {
                 isAdminMode={false}
                 onCancel={() => window.location.reload()} 
                 onSave={async (data) => {
-                    alert("UPDATE REQUEST: In a real app, this data would now be sent to Power Automate to update the list.");
-                    console.log("Saving Data:", data);
+                    // Placeholder for future Save Flow
+                    alert("Verification Successful! In the live app, this would now save your changes.");
                     window.location.reload();
                 }} 
              />
