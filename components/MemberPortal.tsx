@@ -4,14 +4,14 @@ import MemberEditor, { MemberData } from './MemberEditor';
 
 // --- CONFIGURATION ---
 
-// 1. YOUR NEW EMAIL CHECK URL
-const EMAIL_CHECK_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/ee52a820eba44c49a741ee12a98ed271/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=A-mSK7Jdeu4R-plt0goqaxCc3jPSCeQftJq2VQQw3lo";
+// 1. EMAIL CHECK FLOW
+const EMAIL_CHECK_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b37112212bb144089cb86cbd98f99e96/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=32QsyLTj0Q726_mPLwc4rGJlxxt-qLJ7tMn5FrNi6OA";
 
-// 2. SEARCH FLOW URL
+// 2. SEARCH FLOW
 const SEARCH_FLOW_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/40bb1695f27d4c3b9ed0a3f01e7ed7c4/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=qQAQKPv6MwtriFoAHCiGJlAyxej0pxTQF58J8T0Bki8";
 
-// 3. SEND OTP URL (Replace this when you create the OTP Flow)
-const SEND_OTP_URL    = "YOUR_SEND_OTP_FLOW_URL_HERE";
+// 3. SEND OTP FLOW
+const SEND_OTP_URL    = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/ee52a820eba44c49a741ee12a98ed271/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=A-mSK7Jdeu4R-plt0goqaxCc3jPSCeQftJq2VQQw3lo";
 
 export default function MemberPortal() {
   const [stage, setStage] = useState('LOGIN');
@@ -38,7 +38,7 @@ export default function MemberPortal() {
     try {
         // A. Generate Random 6-Digit Code
         const code = Math.floor(100000 + Math.random() * 900000).toString();
-        setGeneratedOtp(code);
+        setGeneratedOtp(code); // Save to state for later verification
 
         // B. Check if Email Exists
         console.log("Checking Email:", email);
@@ -75,16 +75,29 @@ export default function MemberPortal() {
             setActiveMember(null);
         }
 
-        // C. Send OTP (Simulated for now until you create the Flow)
-        // const otpRes = await fetch(SEND_OTP_URL, { ... });
-        alert(`(Simulation) OTP '${code}' sent to ${email}`);
+        // C. Send OTP via Power Automate
+        console.log("Sending OTP:", code);
+        
+        const otpRes = await fetch(SEND_OTP_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                email: email,
+                otp: code // Using local variable 'code'
+            })
+        });
+
+        const otpText = await otpRes.text(); 
+        console.log("OTP Flow Response:", otpText);
+
+        if (!otpRes.ok) throw new Error("Failed to send OTP email");
         
         // Move to next stage
         setStage('OTP');
 
     } catch (err) {
         console.error(err);
-        alert("System error. Please check console.");
+        alert("System error. Please check console for details.");
     } finally {
         setIsLoading(false);
     }
@@ -124,7 +137,9 @@ export default function MemberPortal() {
         });
 
         if (!response.ok) throw new Error("Search failed");
+        
         const data = await response.json();
+        // Handle if Power Automate returns array directly or { value: [] }
         const results = Array.isArray(data) ? data : (data.value || []);
         
         const mappedResults: MemberData[] = results.map((item: any) => ({
@@ -147,6 +162,7 @@ export default function MemberPortal() {
   };
 
   const handleConfirmMatch = (member: MemberData) => {
+    // Link the email to this record locally
     setActiveMember({ ...member, fields: { ...member.fields, field_17: email } });
     setStage('EDITOR');
   };
