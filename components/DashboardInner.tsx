@@ -1,7 +1,7 @@
 'use client';
 import { Login } from '@microsoft/mgt-react';
 import { Providers, ProviderState } from '@microsoft/mgt-element';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 
 // --- CONFIGURATION ---
 const CONFIG = {
@@ -35,6 +35,9 @@ export default function DashboardInner() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  
+  // Edit Modal State (Table View)
+  const [editModalMember, setEditModalMember] = useState<Member | null>(null);
 
   // Table Sorting State
   const [sortField, setSortField] = useState<keyof Member['fields'] | null>(null);
@@ -46,6 +49,21 @@ export default function DashboardInner() {
     field_21: '', field_22: '', field_23: '', field_9: '', 
     field_17: '', field_33: ''
   });
+
+  // Column Resizing State
+  const [colWidths, setColWidths] = useState<Record<string, number>>({
+    field_3: 100,  // First Name (Smaller)
+    field_5: 100,  // Last Name (Smaller)
+    field_19: 220, // Label Name (Larger)
+    field_20: 180, // Street
+    field_21: 120, // City
+    field_22: 70,  // State
+    field_23: 90,  // Zip
+    field_9: 130,  // Phone
+    field_17: 180, // Email
+    field_33: 300  // Family
+  });
+  const [resizing, setResizing] = useState<{ id: string, startX: number, startWidth: number } | null>(null);
 
   // Progress State
   const [loadedCount, setLoadedCount] = useState(0);
@@ -65,9 +83,7 @@ export default function DashboardInner() {
         let estimatedTotal = 5000; 
         try {
             const listInfo = await client.api(`/sites/${CONFIG.siteId}/lists/${CONFIG.listId}`).select('list').get();
-            if(listInfo.list?.itemCount && listInfo.list.itemCount > 0) {
-                estimatedTotal = listInfo.list.itemCount;
-            }
+            if(listInfo.list?.itemCount && listInfo.list.itemCount > 0) estimatedTotal = listInfo.list.itemCount;
         } catch (err) { console.warn("Could not fetch list count", err); }
         setTotalCount(estimatedTotal);
 
@@ -80,10 +96,7 @@ export default function DashboardInner() {
           if (response.value) {
             allItems = [...allItems, ...response.value];
             currentProgress += response.value.length;
-            if(currentProgress > estimatedTotal) {
-                estimatedTotal = currentProgress + 1000;
-                setTotalCount(estimatedTotal);
-            }
+            if(currentProgress > estimatedTotal) { estimatedTotal = currentProgress + 1000; setTotalCount(estimatedTotal); }
             setLoadedCount(currentProgress);
           }
           nextLink = response['@odata.nextLink'];
@@ -107,7 +120,32 @@ export default function DashboardInner() {
     return () => Providers.removeProviderUpdatedListener(updateState);
   }, []);
 
-  // LIST VIEW FILTER
+  // --- RESIZING LOGIC ---
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizing) return;
+      const delta = e.clientX - resizing.startX;
+      const newWidth = Math.max(50, resizing.startWidth + delta); // Min width 50px
+      setColWidths(prev => ({ ...prev, [resizing.id]: newWidth }));
+    };
+    const handleMouseUp = () => setResizing(null);
+
+    if (resizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resizing]);
+
+  const startResizing = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    setResizing({ id, startX: e.clientX, startWidth: colWidths[id] });
+  };
+
+  // --- FILTERS & SORTS ---
   const filteredMembers = useMemo(() => {
     if (!searchQuery) return members;
     const lowerQuery = searchQuery.toLowerCase();
@@ -118,19 +156,16 @@ export default function DashboardInner() {
     });
   }, [members, searchQuery]);
 
-  // TABLE VIEW FILTER & SORT
   const tableMembers = useMemo(() => {
-    // 1. Filter
     let filtered = members.filter(m => {
       return Object.entries(tableFilters).every(([key, value]) => {
         if (!value) return true;
         const cellValue = (m.fields as any)[key];
-        if (key === 'field_22') return cellValue === value; // Exact match for State dropdown
-        return (cellValue || "").toLowerCase().includes(value.toLowerCase()); // Loose match for others
+        if (key === 'field_22') return cellValue === value; 
+        return (cellValue || "").toLowerCase().includes(value.toLowerCase());
       });
     });
 
-    // 2. Sort
     if (sortField) {
       filtered.sort((a, b) => {
         const valA = (a.fields[sortField] || "").toLowerCase();
@@ -140,7 +175,6 @@ export default function DashboardInner() {
         return 0;
       });
     }
-
     return filtered;
   }, [members, tableFilters, sortField, sortDir]);
 
@@ -160,6 +194,13 @@ export default function DashboardInner() {
       setSortField(field);
       setSortDir('asc');
     }
+  };
+
+  const updateMemberInList = (updated: Member) => {
+      setMembers(prev => prev.map(m => m.id === updated.id ? updated : m));
+      // Update selections if needed
+      if(selectedMember?.id === updated.id) setSelectedMember(updated);
+      if(editModalMember?.id === updated.id) setEditModalMember(updated);
   };
 
   return (
@@ -216,31 +257,35 @@ export default function DashboardInner() {
               </div>
             </div>
             <div className="md:col-span-8 bg-white shadow-lg rounded-xl overflow-y-auto h-full border border-gray-100 p-8 relative">
-              {selectedMember ? <MemberDetailView member={selectedMember} onUpdateSuccess={(m) => { setMembers(prev => prev.map(pm => pm.id === m.id ? m : pm)); setSelectedMember(m); }} /> : <div className="flex flex-col items-center justify-center h-full text-gray-300"><div className="text-6xl mb-4 text-orange-100">👤</div><p className="text-lg">Select a member to view details</p></div>}
+              {selectedMember ? <MemberDetailView member={selectedMember} onUpdateSuccess={updateMemberInList} /> : <div className="flex flex-col items-center justify-center h-full text-gray-300"><div className="text-6xl mb-4 text-orange-100">👤</div><p className="text-lg">Select a member to view details</p></div>}
             </div>
           </div>
         ) : (
           /* TABLE VIEW */
-          <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-100 h-[80vh] flex flex-col">
-            <div className="p-4 bg-[#FFF8F0] border-b border-orange-100 flex justify-between items-center">
+          <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-100 h-[80vh] flex flex-col relative">
+            <div className="p-4 bg-[#FFF8F0] border-b border-orange-100 flex justify-between items-center shrink-0">
               <h2 className="text-xl font-bold text-[#8B2323]">Member Directory Table</h2>
               <div className="text-sm font-semibold text-gray-500">{tableMembers.length} Entries Found</div>
             </div>
-            <div className="overflow-auto flex-1">
-              <table className="min-w-full divide-y divide-gray-200 text-sm relative">
+            <div className="overflow-auto flex-1 scrollbar-thin scrollbar-thumb-orange-200">
+              <table className="table-fixed min-w-max border-collapse">
                 <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                   <tr>
                     {[
                       { id: 'field_3', label: 'First Name', sort: true }, { id: 'field_5', label: 'Last Name', sort: true }, { id: 'field_19', label: 'Label Name', sort: true },
                       { id: 'field_20', label: 'Street', sort: false }, { id: 'field_21', label: 'City', sort: false }, { id: 'field_22', label: 'State', sort: false },
                       { id: 'field_23', label: 'Zip', sort: false }, { id: 'field_9', label: 'Phone', sort: false }, { id: 'field_17', label: 'Email', sort: false }, { id: 'field_33', label: 'Family', sort: false }
-                    ].map(col => (
-                      <th key={col.id} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider align-top">
-                        <div className="flex flex-col gap-1">
+                    ].map((col) => (
+                      <th 
+                        key={col.id} 
+                        style={{ width: colWidths[col.id] }}
+                        className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider align-top border-r border-gray-200 relative group"
+                      >
+                        <div className="flex flex-col gap-1 overflow-hidden">
                           <div className={`flex items-center gap-1 ${col.sort ? 'cursor-pointer hover:text-[#F37021]' : ''}`} onClick={() => col.sort && handleSort(col.id as any)}>
-                            {col.label}
+                            <span className="truncate">{col.label}</span>
                             {col.sort && sortField === col.id && (
-                              <svg className={`w-4 h-4 ${sortDir === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                              <svg className={`w-4 h-4 shrink-0 ${sortDir === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                             )}
                           </div>
                           {col.id === 'field_22' ? (
@@ -251,13 +296,18 @@ export default function DashboardInner() {
                           ) : (
                             <input 
                               type="text" 
-                              placeholder={`Filter ${col.label}...`} 
+                              placeholder={`Filter...`} 
                               value={(tableFilters as any)[col.id]} 
                               onChange={(e) => handleTableFilterChange(col.id as any, e.target.value)}
                               className="w-full p-1 text-xs border rounded focus:border-[#F37021] outline-none"
                             />
                           )}
                         </div>
+                        {/* Resizer Handle */}
+                        <div 
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#F37021] group-hover:bg-gray-300 z-20"
+                          onMouseDown={(e) => startResizing(e, col.id)}
+                        />
                       </th>
                     ))}
                   </tr>
@@ -265,16 +315,22 @@ export default function DashboardInner() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {tableMembers.map(m => (
                     <tr key={m.id} className="hover:bg-orange-50">
-                      <td className="px-3 py-2 whitespace-nowrap font-medium">{m.fields.field_3}</td>
-                      <td className="px-3 py-2 whitespace-nowrap font-medium">{m.fields.field_5}</td>
-                      <td className="px-3 py-2 whitespace-nowrap font-bold text-[#8B2323]">{m.fields.field_19}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{m.fields.field_20}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{m.fields.field_21}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{m.fields.field_22}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{m.fields.field_23}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{m.fields.field_9}</td>
-                      <td className="px-3 py-2 whitespace-nowrap truncate max-w-[150px]">{m.fields.field_17}</td>
-                      <td className="px-3 py-2 whitespace-nowrap truncate max-w-[200px] text-xs">{m.fields.field_33}</td>
+                      <td className="px-3 py-2 text-sm font-medium truncate overflow-hidden" style={{ width: colWidths.field_3 }}>{m.fields.field_3}</td>
+                      <td className="px-3 py-2 text-sm font-medium truncate overflow-hidden" style={{ width: colWidths.field_5 }}>{m.fields.field_5}</td>
+                      <td 
+                        className="px-3 py-2 text-sm font-bold text-[#007AFF] hover:underline cursor-pointer truncate overflow-hidden" 
+                        style={{ width: colWidths.field_19 }}
+                        onClick={() => setEditModalMember(m)}
+                      >
+                        {m.fields.field_19}
+                      </td>
+                      <td className="px-3 py-2 text-sm truncate overflow-hidden" style={{ width: colWidths.field_20 }}>{m.fields.field_20}</td>
+                      <td className="px-3 py-2 text-sm truncate overflow-hidden" style={{ width: colWidths.field_21 }}>{m.fields.field_21}</td>
+                      <td className="px-3 py-2 text-sm truncate overflow-hidden" style={{ width: colWidths.field_22 }}>{m.fields.field_22}</td>
+                      <td className="px-3 py-2 text-sm truncate overflow-hidden" style={{ width: colWidths.field_23 }}>{m.fields.field_23}</td>
+                      <td className="px-3 py-2 text-sm truncate overflow-hidden" style={{ width: colWidths.field_9 }}>{m.fields.field_9}</td>
+                      <td className="px-3 py-2 text-sm truncate overflow-hidden" style={{ width: colWidths.field_17 }}>{m.fields.field_17}</td>
+                      <td className="px-3 py-2 text-xs truncate overflow-hidden text-gray-500" style={{ width: colWidths.field_33 }}>{m.fields.field_33}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -283,7 +339,32 @@ export default function DashboardInner() {
           </div>
         )}
       </div>
+
+      {/* CREATE MEMBER MODAL */}
       {showAddModal && <AddMemberModal onClose={() => setShowAddModal(false)} onSuccess={(m) => { setShowAddModal(false); setMembers(prev => [m, ...prev].sort((a, b) => (a.fields.field_19 || "").localeCompare(b.fields.field_19 || ""))); setSelectedMember(m); }} />}
+      
+      {/* EDIT MEMBER POPUP (For Table View) */}
+      {editModalMember && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative animate-fade-in-up">
+                <button 
+                  onClick={() => setEditModalMember(null)}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10 p-2 bg-gray-100 rounded-full"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+                <div className="p-8">
+                    <MemberDetailView 
+                      member={editModalMember} 
+                      onUpdateSuccess={(updated) => {
+                         updateMemberInList(updated);
+                         setEditModalMember(null); 
+                      }} 
+                    />
+                </div>
+            </div>
+        </div>
+      )}
     </div>
   );
 }
