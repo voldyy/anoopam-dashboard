@@ -36,7 +36,7 @@ export default function DashboardInner() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   
-  // Edit Modal State (Table View)
+  // Edit Modal State
   const [editModalMember, setEditModalMember] = useState<Member | null>(null);
 
   // Table Sorting State
@@ -50,11 +50,11 @@ export default function DashboardInner() {
     field_17: '', field_33: ''
   });
 
-  // Column Resizing State
+  // Column Resizing State (UPDATED WIDTHS)
   const [colWidths, setColWidths] = useState<Record<string, number>>({
-    field_3: 100,  // First Name (Smaller)
-    field_5: 100,  // Last Name (Smaller)
-    field_19: 220, // Label Name (Larger)
+    field_3: 60,   // First Name (Reduced 50%)
+    field_5: 60,   // Last Name (Reduced 50%)
+    field_19: 160, // Label Name (Reduced ~25%)
     field_20: 180, // Street
     field_21: 120, // City
     field_22: 70,  // State
@@ -71,13 +71,11 @@ export default function DashboardInner() {
 
   const fetchAllMembers = async () => {
     const provider = Providers.globalProvider;
-    
     if (provider && provider.state === ProviderState.SignedIn) {
       setIsSignedIn(true);
       setLoading(true);
       setLoadedCount(0);
       setTotalCount(0);
-
       try {
         const client = provider.graph.client;
         let estimatedTotal = 5000; 
@@ -101,10 +99,8 @@ export default function DashboardInner() {
           }
           nextLink = response['@odata.nextLink'];
         }
-        
         allItems.sort((a, b) => (a.fields.field_19 || "").localeCompare(b.fields.field_19 || ""));
         setMembers(allItems);
-
       } catch (e) { console.error("Failed to fetch list data:", e); }
       setLoading(false);
     } else {
@@ -125,11 +121,10 @@ export default function DashboardInner() {
     const handleMouseMove = (e: MouseEvent) => {
       if (!resizing) return;
       const delta = e.clientX - resizing.startX;
-      const newWidth = Math.max(50, resizing.startWidth + delta); // Min width 50px
+      const newWidth = Math.max(40, resizing.startWidth + delta); // Min width 40px
       setColWidths(prev => ({ ...prev, [resizing.id]: newWidth }));
     };
     const handleMouseUp = () => setResizing(null);
-
     if (resizing) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
@@ -165,7 +160,6 @@ export default function DashboardInner() {
         return (cellValue || "").toLowerCase().includes(value.toLowerCase());
       });
     });
-
     if (sortField) {
       filtered.sort((a, b) => {
         const valA = (a.fields[sortField] || "").toLowerCase();
@@ -198,7 +192,6 @@ export default function DashboardInner() {
 
   const updateMemberInList = (updated: Member) => {
       setMembers(prev => prev.map(m => m.id === updated.id ? updated : m));
-      // Update selections if needed
       if(selectedMember?.id === updated.id) setSelectedMember(updated);
       if(editModalMember?.id === updated.id) setEditModalMember(updated);
   };
@@ -279,27 +272,27 @@ export default function DashboardInner() {
                       <th 
                         key={col.id} 
                         style={{ width: colWidths[col.id] }}
-                        className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider align-top border-r border-gray-200 relative group"
+                        className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider align-top border-r border-gray-200 relative group overflow-hidden"
                       >
-                        <div className="flex flex-col gap-1 overflow-hidden">
+                        <div className="flex flex-col gap-1 w-full">
                           <div className={`flex items-center gap-1 ${col.sort ? 'cursor-pointer hover:text-[#F37021]' : ''}`} onClick={() => col.sort && handleSort(col.id as any)}>
                             <span className="truncate">{col.label}</span>
                             {col.sort && sortField === col.id && (
-                              <svg className={`w-4 h-4 shrink-0 ${sortDir === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                              <svg className={`w-3 h-3 shrink-0 ${sortDir === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                             )}
                           </div>
                           {col.id === 'field_22' ? (
-                            <select value={tableFilters.field_22} onChange={(e) => handleTableFilterChange('field_22', e.target.value)} className="w-full p-1 text-xs border rounded">
+                            <select value={tableFilters.field_22} onChange={(e) => handleTableFilterChange('field_22', e.target.value)} className="w-full p-1 text-[10px] border rounded min-w-0">
                               <option value="">All</option>
                               {uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
                           ) : (
                             <input 
                               type="text" 
-                              placeholder={`Filter...`} 
+                              placeholder="Search..." 
                               value={(tableFilters as any)[col.id]} 
                               onChange={(e) => handleTableFilterChange(col.id as any, e.target.value)}
-                              className="w-full p-1 text-xs border rounded focus:border-[#F37021] outline-none"
+                              className="w-full p-1 text-[10px] border rounded focus:border-[#F37021] outline-none min-w-0"
                             />
                           )}
                         </div>
