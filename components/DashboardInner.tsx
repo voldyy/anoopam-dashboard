@@ -50,20 +50,25 @@ export default function DashboardInner() {
     field_17: '', field_33: ''
   });
 
-  // Column Resizing State (UPDATED WIDTHS)
+  // Column Resizing State (Fixed Widths)
   const [colWidths, setColWidths] = useState<Record<string, number>>({
-    field_3: 60,   // First Name (Reduced 50%)
-    field_5: 60,   // Last Name (Reduced 50%)
-    field_19: 160, // Label Name (Reduced ~25%)
+    field_3: 80,   // First Name
+    field_5: 80,   // Last Name
+    field_19: 180, // Label Name
     field_20: 180, // Street
     field_21: 120, // City
     field_22: 70,  // State
-    field_23: 90,  // Zip
-    field_9: 130,  // Phone
+    field_23: 80,  // Zip
+    field_9: 120,  // Phone
     field_17: 180, // Email
     field_33: 300  // Family
   });
   const [resizing, setResizing] = useState<{ id: string, startX: number, startWidth: number } | null>(null);
+
+  // Calculate Total Width to enforce table rigidity
+  const totalTableWidth = useMemo(() => {
+    return Object.values(colWidths).reduce((acc, w) => acc + w, 0);
+  }, [colWidths]);
 
   // Progress State
   const [loadedCount, setLoadedCount] = useState(0);
@@ -261,7 +266,10 @@ export default function DashboardInner() {
               <div className="text-sm font-semibold text-gray-500">{tableMembers.length} Entries Found</div>
             </div>
             <div className="overflow-auto flex-1 scrollbar-thin scrollbar-thumb-orange-200">
-              <table className="table-fixed min-w-max border-collapse">
+              <table 
+                className="table-fixed border-collapse" 
+                style={{ width: `${totalTableWidth}px`, minWidth: '100%' }}
+              >
                 <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                   <tr>
                     {[
@@ -271,7 +279,11 @@ export default function DashboardInner() {
                     ].map((col) => (
                       <th 
                         key={col.id} 
-                        style={{ width: colWidths[col.id] }}
+                        style={{ 
+                            width: `${colWidths[col.id]}px`, 
+                            minWidth: `${colWidths[col.id]}px`, 
+                            maxWidth: `${colWidths[col.id]}px` 
+                        }}
                         className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider align-top border-r border-gray-200 relative group overflow-hidden"
                       >
                         <div className="flex flex-col gap-1 w-full">
@@ -289,7 +301,7 @@ export default function DashboardInner() {
                           ) : (
                             <input 
                               type="text" 
-                              placeholder="Search..." 
+                              placeholder={`Filter...`} 
                               value={(tableFilters as any)[col.id]} 
                               onChange={(e) => handleTableFilterChange(col.id as any, e.target.value)}
                               className="w-full p-1 text-[10px] border rounded focus:border-[#F37021] outline-none min-w-0"
