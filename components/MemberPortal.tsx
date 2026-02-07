@@ -2,11 +2,13 @@
 import { useState } from 'react';
 import MemberEditor, { MemberData } from './MemberEditor';
 
-// --- CONFIGURATION ---
-// These are your specific Backend URLs
-const EMAIL_FLOW_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/40bb1695f27d4c3b9ed0a3f01e7ed7c4/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=qQAQKPv6MwtriFoAHCiGJlAyxej0pxTQF58J8T0Bki8";
+// --- CONFIGURATION (SWAPPED) ---
 
-const SEARCH_FLOW_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b37112212bb144089cb86cbd98f99e96/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=32QsyLTj0Q726_mPLwc4rGJlxxt-qLJ7tMn5FrNi6OA";
+// 1. EMAIL FLOW URL (Formerly Search)
+const EMAIL_FLOW_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b37112212bb144089cb86cbd98f99e96/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=32QsyLTj0Q726_mPLwc4rGJlxxt-qLJ7tMn5FrNi6OA";
+
+// 2. SEARCH FLOW URL (Formerly Email)
+const SEARCH_FLOW_URL = "https://default6a3682358b304544aeac16b2bfa9cb.65.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/40bb1695f27d4c3b9ed0a3f01e7ed7c4/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=qQAQKPv6MwtriFoAHCiGJlAyxej0pxTQF58J8T0Bki8";
 
 export default function MemberPortal() {
   const [stage, setStage] = useState('LOGIN');
@@ -30,6 +32,7 @@ export default function MemberPortal() {
     setIsLoading(true);
 
     try {
+        console.log("Checking Email:", email); // Debug
         // A. Check if Email Exists
         const response = await fetch(EMAIL_FLOW_URL, {
             method: 'POST',
@@ -37,9 +40,12 @@ export default function MemberPortal() {
             body: JSON.stringify({ email: email })
         });
 
-        if (!response.ok) throw new Error("Email check failed");
+        const text = await response.text();
+        console.log("Email Flow Raw Response:", text); // Debug
+
+        if (!response.ok) throw new Error("Email check failed: " + text);
         
-        const result = await response.json();
+        const result = JSON.parse(text);
 
         // Expecting Flow to return: { "found": true, "data": { ...SharePointItem... } }
         if (result.found && result.data) {
@@ -57,14 +63,15 @@ export default function MemberPortal() {
                 }
             };
             setActiveMember(foundMember);
+            console.log("User Found:", foundMember);
         } else {
+            console.log("User Not Found");
             // New user
             setIsExistingUser(false);
             setActiveMember(null);
         }
 
         // B. Simulate Sending OTP
-        // (In production, you would add a "Send Email" action to your Power Automate flow)
         alert(`(Simulation) OTP '123456' sent to ${email}`);
         setStage('OTP');
 
@@ -96,6 +103,8 @@ export default function MemberPortal() {
     setIsLoading(true);
     setSearchResults([]);
 
+    console.log("Searching for:", { searchFirst, searchLast, searchZip });
+
     try {
         const response = await fetch(SEARCH_FLOW_URL, {
             method: 'POST',
@@ -107,9 +116,12 @@ export default function MemberPortal() {
             })
         });
 
-        if (!response.ok) throw new Error("Search failed");
+        const text = await response.text();
+        console.log("Search Flow Raw Response:", text);
+
+        if (!response.ok) throw new Error("Search failed: " + text);
         
-        const data = await response.json();
+        const data = JSON.parse(text);
         
         // Handle if Power Automate returns array directly or { value: [] }
         const results = Array.isArray(data) ? data : (data.value || []);
@@ -128,7 +140,7 @@ export default function MemberPortal() {
         
     } catch (err) {
         console.error(err);
-        alert("Could not search directory.");
+        alert("Could not search directory. Check console for details.");
     } finally {
         setIsLoading(false);
     }
