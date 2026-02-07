@@ -17,11 +17,10 @@ export type MemberData = {
   };
 };
 
-// --- IOS STYLE COMPONENTS (THE "SWIFTUI" LOOK) ---
+// --- IOS STYLE COMPONENTS ---
 
 const IOSPage = ({ children, title, action }: { children: React.ReactNode, title: string, action?: React.ReactNode }) => (
   <div className="min-h-screen bg-[#F2F2F7] font-sans pb-20 text-gray-900">
-    {/* Navigation Bar */}
     <div className="sticky top-0 z-30 bg-[#F2F2F7]/80 backdrop-blur-md border-b border-gray-300/50 px-5 pt-12 pb-3 flex justify-between items-end transition-all">
       <h1 className="text-[34px] font-bold text-black tracking-tight leading-tight">{title}</h1>
       <div className="mb-1">{action}</div>
@@ -115,7 +114,7 @@ export default function MemberPortal() {
             setActiveMember(null);
         }
 
-        // 2. Send OTP
+        // 2. Send OTP (Real)
         const otpRes = await fetch(SEND_OTP_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -124,6 +123,7 @@ export default function MemberPortal() {
         
         if (!otpRes.ok) throw new Error("Failed to send code");
         
+        // Success - Move to OTP screen
         setStage('OTP');
     } catch (err) {
         console.error(err);
@@ -135,7 +135,7 @@ export default function MemberPortal() {
 
   // --- LOGIC: VERIFY OTP ---
   const handleVerifyOtp = () => {
-    if (otpInput !== generatedOtp && otpInput !== "123456") { // 123456 as master bypass for testing
+    if (otpInput !== generatedOtp && otpInput !== "123456") { // 123456 bypass for testing
         alert("Invalid Code"); return; 
     }
     if (isExistingUser && activeMember) setStage('EDITOR');
@@ -222,7 +222,7 @@ export default function MemberPortal() {
       <IOSPage title="Find Account" action={<button onClick={() => setStage('LOGIN')} className="text-[#007AFF] text-[17px]">Cancel</button>}>
         <p className="text-gray-500 mb-6 px-1 text-[15px]">We couldn't find an account with that email. Let's look you up in the directory.</p>
         
-        <IOSSection title="Your Information">
+        <IOSSection title="Search Criteria">
             <IOSInput label="First Name" placeholder="Required" value={searchFirst} onChange={(e: any) => setSearchFirst(e.target.value)} />
             <IOSInput label="Last Name" placeholder="Required" value={searchLast} onChange={(e: any) => setSearchLast(e.target.value)} />
             <IOSInput label="Zip Code" placeholder="Required" type="tel" value={searchZip} onChange={(e: any) => setSearchZip(e.target.value)} />
